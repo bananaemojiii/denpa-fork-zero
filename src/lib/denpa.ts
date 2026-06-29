@@ -82,6 +82,49 @@ export async function fetchSchedule(cat = "sport"): Promise<BroadcastSegment[]> 
   return flat.filter((s) => s.endsInMs > 0).sort((a, b) => a.endsInMs - b.endsInMs);
 }
 
+/* ───────────── Price history / chart (denpa.ai → Polymarket CLOB) ───────────── */
+export interface PricePoint {
+  ts: number; // unix ms
+  p: number; // YES probability 0–100
+}
+
+// 60 min of 1-minute YES-price history for the chart. Empty array on any failure
+// (market without a yes token, history unavailable) — the chart just renders flat.
+export async function fetchHistory(marketId: string): Promise<PricePoint[]> {
+  try {
+    const d = await getJSON<{ points: PricePoint[] }>(
+      `${WEB}/api/polymarket/history?market_id=${encodeURIComponent(marketId)}`,
+    );
+    return d.points ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/* ───────────── IPTV channels — each market category is a channel ───────────── */
+export interface Channel {
+  num: number;
+  name: string;
+  kind: "markets" | "rank" | "guide";
+  cat?: string; // schedule category for kind:"markets"
+  color: string; // teletext accent
+}
+
+// CH 1–7 are live market categories (schedule cat); CH 8 RANK is the operator
+// leaderboard; CH 9 GUIDE is the all-markets heatmap. Tuning a dead category
+// shows the TV-static screen — authentic dead-air.
+export const CHANNELS: Channel[] = [
+  { num: 1, name: "SPORT", kind: "markets", cat: "sport", color: "#00ff00" },
+  { num: 2, name: "CRYPTO", kind: "markets", cat: "crypto", color: "#ffff00" },
+  { num: 3, name: "POLITICS", kind: "markets", cat: "politics", color: "#00ffff" },
+  { num: 4, name: "CULTURE", kind: "markets", cat: "culture", color: "#ff00ff" },
+  { num: 5, name: "MUSIC", kind: "markets", cat: "music", color: "#ff00ff" },
+  { num: 6, name: "NEWS", kind: "markets", cat: "news", color: "#ff0000" },
+  { num: 7, name: "SCIENCE", kind: "markets", cat: "science", color: "#0000ff" },
+  { num: 8, name: "RANK", kind: "rank", color: "#00ff00" },
+  { num: 9, name: "GUIDE", kind: "guide", color: "#00ffff" },
+];
+
 export const denpaLinks = {
   market: (route: string) => `${WEB}${route}`,
   operator: (callsign: string) => `${WEB}/u/${callsign}`,

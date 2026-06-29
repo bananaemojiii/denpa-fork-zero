@@ -1,12 +1,16 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchLeaderboard,
   fetchHeatmap,
   fetchSchedule,
+  fetchHistory,
   denpaLinks,
+  CHANNELS,
+  type Channel,
   type OperatorRank,
   type HeatmapTile,
   type BroadcastSegment,
+  type PricePoint,
 } from "./lib/denpa";
 
 // Classic Ceefax / teletext palette — the retro skin IS the surface.
@@ -38,6 +42,17 @@ function hhmm(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "--:--" : `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+// "RESOLVES IN 02:14:09" style countdown from a millisecond remainder.
+function fmtCountdown(ms: number): string {
+  if (ms <= 0) return "RESOLVING";
+  const s = Math.floor(ms / 1000);
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (d > 0) return `${d}D ${pad(h)}:${pad(m)}:${pad(sec)}`;
+  return `${pad(h)}:${pad(m)}:${pad(sec)}`;
+}
 
 /* ───────────── Dead-channel TV static ───────────── */
 function TvStatic({ caption }: { caption: string }) {
@@ -47,9 +62,8 @@ function TvStatic({ caption }: { caption: string }) {
     <div
       style={{
         position: "relative",
-        height: 340,
+        height: 300,
         background: "#0a0a0a",
-        border: "2px solid #222",
         overflow: "hidden",
         display: "flex",
         alignItems: "center",
@@ -100,6 +114,37 @@ function TvStatic({ caption }: { caption: string }) {
   );
 }
 
+/* ───────────── Live price chart (SVG sparkline of YES history) ───────────── */
+function Sparkline({ points, color }: { points: PricePoint[]; color: string }) {
+  const W = 100;
+  const H = 30;
+  const path = useMemo(() => {
+    if (points.length < 2) return "";
+    const xs = points.map((p) => p.ts);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const spanX = maxX - minX || 1;
+    return points
+      .map((p, i) => {
+        const x = ((p.ts - minX) / spanX) * W;
+        const y = H - (Math.max(0, Math.min(100, p.p)) / 100) * H;
+        return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(" ");
+  }, [points]);
+
+  if (!path) {
+    return <div style={{ color: TT.grey, fontSize: "0.62rem", letterSpacing: "0.1em" }}>CHART · NO HISTORY</div>;
+  }
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "100%", height: 56, display: "block" }}>
+      {/* 50% mid line */}
+      <line x1="0" y1={H / 2} x2={W} y2={H / 2} stroke="#222" strokeWidth="0.5" />
+      <polyline points={path.replace(/[ML]/g, " ").trim()} fill="none" stroke={color} strokeWidth="1" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
 /* ───────────── Section header (teletext page tab) ───────────── */
 function SectionHead({ page, title, color }: { page: string; title: string; color: string }) {
   return (
@@ -122,13 +167,107 @@ function SectionHead({ page, title, color }: { page: string; title: string; colo
 const row: React.CSSProperties = { display: "flex", gap: "0.7rem", alignItems: "baseline", padding: "0.2rem 0" };
 const cell: React.CSSProperties = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
 
+/* ───────────── Now-playing TV screen (a market on a channel) ───────────── */
+function NowPlaying({
+  seg,
+  channel,
+  history,
+  remainMs,
+}: {
+  seg: BroadcastSegment;
+  channel: Channel;
+  history: PricePoint[];
+  remainMs: number;
+}) {
+  const yes = Math.round(seg.yesPrice);
+  const no = 100 - yes;
+  return (
+    <div style={{ background: "#070707", padding: "1rem 1.1rem 1.1rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <span style={{ color: TT.red, fontWeight: 900, letterSpacing: "0.14em", animation: "fz-blink 1s steps(1) infinite" }}>
+          ● ON AIR
+        </span>
+        <span style={{ color: TT.grey, fontSize: "0.66rem", letterSpacing: "0.12em" }}>
+          RESOLVES IN {fmtCountdown(remainMs)}
+        </span>
+      </div>
+
+      <a
+        href={denpaLinks.market(`/m/${seg.id}`)}
+        target="_blank"
+        rel="noreferrer"
+        style={{ color: TT.white, fontWeight: 900, fontSize: "1.15rem", lineHeight: 1.25, display: "block", margin: "0.55rem 0 0.75rem", textDecoration: "none" }}
+      >
+        {seg.title}
+      </a>
+
+      {/* YES / NO split bars — green YES, cyan NO */}
+      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem" }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", color: TT.green, fontSize: "0.66rem", letterSpacing: "0.1em", fontWeight: 900 }}>
+            <span>YES</span>
+            <span>{yes}%</span>
+          </div>
+          <div style={{ height: 8, background: "#111", marginTop: 3 }}>
+            <div style={{ height: "100%", width: `${yes}%`, background: TT.green }} />
+          </div>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", color: TT.cyan, fontSize: "0.66rem", letterSpacing: "0.1em", fontWeight: 900 }}>
+            <span>NO</span>
+            <span>{no}%</span>
+          </div>
+          <div style={{ height: 8, background: "#111", marginTop: 3 }}>
+            <div style={{ height: "100%", width: `${no}%`, background: TT.cyan }} />
+          </div>
+        </div>
+      </div>
+
+      {/* 60-min YES price chart */}
+      <Sparkline points={history} color={channel.color} />
+
+      <div style={{ display: "flex", justifyContent: "space-between", color: TT.grey, fontSize: "0.64rem", letterSpacing: "0.08em", marginTop: "0.35rem" }}>
+        <span>VOL ${Math.round((seg.volume || 0) / 1000)}K</span>
+        <span>{seg.signals ?? 0} SIGNALS · {seg.tapes ?? 0} TAPES</span>
+        <span>{seg.status?.toUpperCase()}</span>
+      </div>
+
+      {/* SIGNAL actions — resolve to the denpa.ai market page (money-free forecast) */}
+      <div style={{ display: "flex", gap: 0, marginTop: "0.8rem" }}>
+        <a
+          href={denpaLinks.market(`/m/${seg.id}`)}
+          target="_blank"
+          rel="noreferrer"
+          style={{ flex: 1, textAlign: "center", background: TT.green, color: "#000", fontWeight: 900, fontSize: "0.78rem", letterSpacing: "0.12em", padding: "0.55rem 0", textDecoration: "none" }}
+        >
+          ▸ SIGNAL YES
+        </a>
+        <a
+          href={denpaLinks.market(`/m/${seg.id}`)}
+          target="_blank"
+          rel="noreferrer"
+          style={{ flex: 1, textAlign: "center", background: TT.cyan, color: "#000", fontWeight: 900, fontSize: "0.78rem", letterSpacing: "0.12em", padding: "0.55rem 0", textDecoration: "none" }}
+        >
+          ▸ SIGNAL NO
+        </a>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [now, setNow] = useState(new Date());
-  const [tiles, setTiles] = useState<HeatmapTile[]>([]);
+  const [chIdx, setChIdx] = useState(0);
+  const channel = CHANNELS[chIdx];
+
+  // Per-channel schedule cache (cat → segments) + global feeds.
+  const [schedCache, setSchedCache] = useState<Record<string, BroadcastSegment[]>>({});
   const [board, setBoard] = useState<OperatorRank[]>([]);
-  const [sched, setSched] = useState<BroadcastSegment[]>([]);
+  const [tiles, setTiles] = useState<HeatmapTile[]>([]);
+  const [history, setHistory] = useState<PricePoint[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [errors, setErrors] = useState(0);
+  const histFor = useRef<string | null>(null);
 
   // Clock tick.
   useEffect(() => {
@@ -136,18 +275,33 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
-  // Data — initial + 30s refresh. Each source fails independently.
+  // Tune by channel number / arrow keys — the zapper.
+  const tune = useCallback((idx: number) => {
+    const n = ((idx % CHANNELS.length) + CHANNELS.length) % CHANNELS.length;
+    setChIdx(n);
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key >= "1" && e.key <= "9") {
+        const found = CHANNELS.findIndex((c) => c.num === Number(e.key));
+        if (found >= 0) tune(found);
+      } else if (e.key === "ArrowUp") tune(chIdx - 1);
+      else if (e.key === "ArrowDown") tune(chIdx + 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [chIdx, tune]);
+
+  // Global feeds (leaderboard + heatmap) — initial + 30s refresh.
   useEffect(() => {
     let live = true;
     const load = async () => {
-      const results = await Promise.allSettled([fetchHeatmap(), fetchLeaderboard(12), fetchSchedule("sport")]);
+      const [lb, hm] = await Promise.allSettled([fetchLeaderboard(20), fetchHeatmap()]);
       if (!live) return;
       let errs = 0;
-      if (results[0].status === "fulfilled") setTiles(results[0].value);
+      if (lb.status === "fulfilled") setBoard(lb.value);
       else errs++;
-      if (results[1].status === "fulfilled") setBoard(results[1].value);
-      else errs++;
-      if (results[2].status === "fulfilled") setSched(results[2].value);
+      if (hm.status === "fulfilled") setTiles(hm.value);
       else errs++;
       setErrors(errs);
       setLoaded(true);
@@ -160,14 +314,64 @@ export default function App() {
     };
   }, []);
 
-  const onAir = sched.find((s) => s.bucket === "ON AIR") ?? null;
-  const upNext = sched.filter((s) => s.id !== onAir?.id).slice(0, 10);
-  const allEmpty = tiles.length === 0 && board.length === 0 && sched.length === 0;
+  // Tuned channel's schedule — fetch on tune (if uncached) + 30s refresh.
+  useEffect(() => {
+    if (channel.kind !== "markets" || !channel.cat) return;
+    const cat = channel.cat;
+    let live = true;
+    const load = async () => {
+      try {
+        const segs = await fetchSchedule(cat);
+        if (live) setSchedCache((c) => ({ ...c, [cat]: segs }));
+      } catch {
+        if (live) setSchedCache((c) => ({ ...c, [cat]: [] }));
+      }
+    };
+    void load();
+    const id = setInterval(() => void load(), 30_000);
+    return () => {
+      live = false;
+      clearInterval(id);
+    };
+  }, [channel.kind, channel.cat]);
+
+  // Now-playing market for the tuned channel: ON AIR first, else soonest.
+  const sched = channel.cat ? schedCache[channel.cat] : undefined;
+  const nowSeg = useMemo(() => {
+    if (!sched || sched.length === 0) return null;
+    return sched.find((s) => s.bucket === "ON AIR") ?? sched[0];
+  }, [sched]);
+  const guide = useMemo(() => (sched ?? []).filter((s) => s.id !== nowSeg?.id).slice(0, 12), [sched, nowSeg]);
+
+  // Price history follows the now-playing market.
+  useEffect(() => {
+    if (!nowSeg) {
+      setHistory([]);
+      histFor.current = null;
+      return;
+    }
+    if (histFor.current === nowSeg.id) return;
+    histFor.current = nowSeg.id;
+    let live = true;
+    void fetchHistory(nowSeg.id).then((pts) => {
+      if (live) setHistory(pts);
+    });
+    return () => {
+      live = false;
+    };
+  }, [nowSeg]);
+
+  // Live countdown for the now-playing market (endsInMs captured at fetch, decay to clock).
+  const fetchedAt = useRef(Date.now());
+  useEffect(() => {
+    fetchedAt.current = Date.now();
+  }, [sched]);
+  const remainMs = nowSeg ? nowSeg.endsInMs - (now.getTime() - fetchedAt.current) : 0;
 
   return (
     <div style={{ position: "relative", minHeight: "100vh", background: TT.bg }}>
-      {/* CRT scanline overlay across the whole page — the "static TV" texture. */}
-      <style>{`@keyframes fz-blink{0%,49%{opacity:1}50%,100%{opacity:0.3}}`}</style>
+      <style>{`@keyframes fz-blink{0%,49%{opacity:1}50%,100%{opacity:0.3}} @keyframes fz-marq{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}`}</style>
+      {/* CRT scanline overlay — the "static TV" texture. */}
       <div
         aria-hidden
         style={{
@@ -191,145 +395,157 @@ export default function App() {
         <div style={{ background: TT.bg, border: "2px solid #222", padding: "1.1rem 1.25rem 1.25rem" }}>
           {/* Header line: page no · masthead · date+clock */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: "0.85rem", letterSpacing: "0.08em" }}>
-            <span style={{ color: TT.white }}>P100</span>
-            <span style={{ color: TT.cyan, fontWeight: 900, letterSpacing: "0.2em" }}>DENPA · FORK ZERO</span>
+            <span style={{ color: TT.white }}>P{100 + channel.num}</span>
+            <span style={{ color: TT.cyan, fontWeight: 900, letterSpacing: "0.2em" }}>DENPA · IPTV</span>
             <span style={{ color: TT.green }}>
               {fmtDate(now)} {fmtClock(now)}
             </span>
           </div>
 
-          {/* Double-height masthead */}
-          <div style={{ color: TT.yellow, fontWeight: 900, fontSize: "2rem", letterSpacing: "0.05em", margin: "0.7rem 0 0.15rem" }}>
-            DENPA FORK ZERO
+          {/* Masthead + tuned-channel readout */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", margin: "0.7rem 0 0.15rem" }}>
+            <div style={{ color: TT.yellow, fontWeight: 900, fontSize: "2rem", letterSpacing: "0.04em" }}>DENPA IPTV</div>
+            <div style={{ color: channel.color, fontWeight: 900, fontSize: "1.1rem", letterSpacing: "0.12em" }}>
+              CH {pad(channel.num)} ▸ {channel.name}
+            </div>
           </div>
           <div style={{ color: TT.grey, fontSize: "0.7rem", letterSpacing: "0.18em", borderBottom: `2px solid ${TT.magenta}`, paddingBottom: "0.6rem" }}>
-            TELETEXT · LIVE SIGNALS VIA DENPA PROTOCOL{errors > 0 ? `  ·  ${errors} FEED(S) OFFLINE` : ""}
+            PREDICTION TELEVISION · FORK ZERO · LIVE VIA DENPA PROTOCOL{errors > 0 ? `  ·  ${errors} FEED(S) OFFLINE` : ""}
           </div>
 
-          {/* Tuning / dead-channel screen until something loads. */}
-          {!loaded && (
+          {/* ───── THE SCREEN ───── */}
+          {!loaded ? (
             <div style={{ marginTop: "1rem" }}>
               <TvStatic caption="TUNING — RESOLVING DENPA SIGNAL…" />
             </div>
-          )}
-          {loaded && allEmpty && (
-            <div style={{ marginTop: "1rem" }}>
-              <TvStatic caption="NO MARKETS ON AIR — CHECK BACK SOON" />
-            </div>
-          )}
-
-          {/* ON AIR row */}
-          {onAir && (
-            <div style={{ ...row, marginTop: "0.9rem" }}>
-              <span style={{ color: TT.red, fontWeight: 900, flexShrink: 0, animation: "fz-blink 1s steps(1) infinite" }}>●ON AIR</span>
-              <a href={denpaLinks.market(`/m/${onAir.id}`)} target="_blank" rel="noreferrer" style={{ ...cell, color: TT.white, flex: 1, textDecoration: "none" }}>
-                {onAir.title}
-              </a>
-              <span style={{ color: TT.yellow, fontWeight: 900, flexShrink: 0 }}>{Math.round(onAir.yesPrice)}%</span>
-            </div>
-          )}
-
-          {/* TOP MARKETS */}
-          {tiles.length > 0 && (
-            <>
-              <SectionHead page="P101" title="TOP MARKETS" color={TT.cyan} />
-              {tiles.map((t) => (
-                <a
-                  key={t.id}
-                  href={denpaLinks.market(t.route)}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ ...row, textDecoration: "none" }}
-                >
-                  <span style={{ ...cell, color: TT.white, flex: 1 }}>{t.topMarket || t.label}</span>
-                  <span style={{ color: TT.grey, width: "6rem", flexShrink: 0, fontSize: "0.68rem", letterSpacing: "0.06em", textAlign: "right" }}>
-                    ${Math.round(t.totalVol24h / 1000)}K
-                  </span>
-                  <span style={{ color: TT.yellow, width: "3.4rem", textAlign: "right", flexShrink: 0, fontWeight: 900 }}>
-                    {Math.round(t.topYesPct)}%
-                  </span>
-                </a>
-              ))}
-            </>
-          )}
-
-          {/* SIGNAL LEADERBOARD */}
-          {board.length > 0 && (
-            <>
-              <SectionHead page="P200" title="SIGNAL LEADERBOARD" color={TT.green} />
-              <div style={{ ...row, color: TT.grey, fontSize: "0.66rem", letterSpacing: "0.1em" }}>
-                <span style={{ width: "2rem", flexShrink: 0 }}>#</span>
-                <span style={{ flex: 1 }}>OPERATOR</span>
-                <span style={{ width: "4rem", textAlign: "right", flexShrink: 0 }}>SCORE</span>
-                <span style={{ width: "4rem", textAlign: "right", flexShrink: 0 }}>ACC</span>
+          ) : channel.kind === "markets" ? (
+            sched === undefined ? (
+              <div style={{ marginTop: "1rem" }}>
+                <TvStatic caption={`TUNING CH ${pad(channel.num)} ${channel.name}…`} />
               </div>
-              {board.map((o) => (
-                <a
-                  key={o.privyId}
-                  href={denpaLinks.operator(o.callsign)}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ ...row, textDecoration: "none" }}
-                >
-                  <span style={{ color: TT.cyan, width: "2rem", flexShrink: 0 }}>{o.rank}</span>
-                  <span style={{ ...cell, color: TT.white, flex: 1 }}>{o.displayName || o.callsign}</span>
-                  <span style={{ color: TT.yellow, width: "4rem", textAlign: "right", flexShrink: 0, fontWeight: 900 }}>{o.score}</span>
-                  <span style={{ color: TT.green, width: "4rem", textAlign: "right", flexShrink: 0 }}>{o.accuracy}%</span>
-                </a>
-              ))}
-            </>
-          )}
-
-          {/* BROADCAST SCHEDULE */}
-          {upNext.length > 0 && (
+            ) : nowSeg ? (
+              <div style={{ marginTop: "1rem" }}>
+                <NowPlaying seg={nowSeg} channel={channel} history={history} remainMs={remainMs} />
+                {/* EPG guide for this channel */}
+                {guide.length > 0 && (
+                  <>
+                    <SectionHead page={`P${100 + channel.num}.G`} title="GUIDE — UP NEXT" color={channel.color} />
+                    {guide.map((s) => (
+                      <a key={s.id} href={denpaLinks.market(`/m/${s.id}`)} target="_blank" rel="noreferrer" style={{ ...row, textDecoration: "none" }}>
+                        <span style={{ color: TT.cyan, width: "3.4rem", flexShrink: 0 }}>{hhmm(s.endDate)}</span>
+                        <span style={{ ...cell, color: TT.white, flex: 1 }}>{s.title}</span>
+                        <span style={{ color: TT.grey, width: "5rem", flexShrink: 0, fontSize: "0.64rem", ...cell }}>{s.bucket}</span>
+                        <span style={{ color: TT.yellow, width: "3rem", textAlign: "right", flexShrink: 0, fontWeight: 900 }}>{Math.round(s.yesPrice)}%</span>
+                      </a>
+                    ))}
+                  </>
+                )}
+              </div>
+            ) : (
+              <div style={{ marginTop: "1rem" }}>
+                <TvStatic caption={`NO MARKETS ON CH ${pad(channel.num)} ${channel.name} — TRY ANOTHER CHANNEL`} />
+              </div>
+            )
+          ) : channel.kind === "rank" ? (
             <>
-              <SectionHead page="P330" title="BROADCAST" color={TT.yellow} />
-              {upNext.map((s) => (
-                <a
-                  key={s.id}
-                  href={denpaLinks.market(`/m/${s.id}`)}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ ...row, textDecoration: "none" }}
-                >
-                  <span style={{ color: TT.cyan, width: "3.4rem", flexShrink: 0 }}>{hhmm(s.endDate)}</span>
-                  <span style={{ ...cell, color: TT.white, flex: 1 }}>{s.title}</span>
-                  <span style={{ color: TT.grey, width: "5.5rem", flexShrink: 0, fontSize: "0.66rem", letterSpacing: "0.06em", ...cell }}>
-                    {s.bucket}
-                  </span>
-                  <span style={{ color: TT.yellow, width: "3rem", textAlign: "right", flexShrink: 0 }}>{Math.round(s.yesPrice)}%</span>
-                </a>
-              ))}
+              <SectionHead page="P108" title="SIGNAL LEADERBOARD" color={TT.green} />
+              {board.length === 0 ? (
+                <TvStatic caption="LEADERBOARD OFFLINE" />
+              ) : (
+                <>
+                  <div style={{ ...row, color: TT.grey, fontSize: "0.66rem", letterSpacing: "0.1em" }}>
+                    <span style={{ width: "2rem", flexShrink: 0 }}>#</span>
+                    <span style={{ flex: 1 }}>OPERATOR</span>
+                    <span style={{ width: "4rem", textAlign: "right", flexShrink: 0 }}>SCORE</span>
+                    <span style={{ width: "4rem", textAlign: "right", flexShrink: 0 }}>ACC</span>
+                  </div>
+                  {board.map((o) => (
+                    <a key={o.privyId} href={denpaLinks.operator(o.callsign)} target="_blank" rel="noreferrer" style={{ ...row, textDecoration: "none" }}>
+                      <span style={{ color: TT.cyan, width: "2rem", flexShrink: 0 }}>{o.rank}</span>
+                      <span style={{ ...cell, color: TT.white, flex: 1 }}>{o.displayName || o.callsign}</span>
+                      <span style={{ color: TT.yellow, width: "4rem", textAlign: "right", flexShrink: 0, fontWeight: 900 }}>{o.score}</span>
+                      <span style={{ color: TT.green, width: "4rem", textAlign: "right", flexShrink: 0 }}>{o.accuracy}%</span>
+                    </a>
+                  ))}
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <SectionHead page="P109" title="GUIDE — TOP MARKETS" color={TT.cyan} />
+              {tiles.length === 0 ? (
+                <TvStatic caption="GUIDE OFFLINE" />
+              ) : (
+                tiles.map((t) => (
+                  <a key={t.id} href={denpaLinks.market(t.route)} target="_blank" rel="noreferrer" style={{ ...row, textDecoration: "none" }}>
+                    <span style={{ ...cell, color: TT.white, flex: 1 }}>{t.topMarket || t.label}</span>
+                    <span style={{ color: TT.grey, width: "6rem", flexShrink: 0, fontSize: "0.68rem", textAlign: "right" }}>${Math.round(t.totalVol24h / 1000)}K</span>
+                    <span style={{ color: TT.yellow, width: "3.4rem", textAlign: "right", flexShrink: 0, fontWeight: 900 }}>{Math.round(t.topYesPct)}%</span>
+                  </a>
+                ))
+              )}
             </>
           )}
 
-          {/* FastText — the four-colour navigation bar */}
+          {/* ───── CHANNEL ZAPPER ───── */}
+          <SectionHead page="ZAP" title="CHANNELS — ▲▼ OR 1–9" color={TT.white} />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+            {CHANNELS.map((c, i) => {
+              const on = i === chIdx;
+              return (
+                <button
+                  key={c.num}
+                  onClick={() => tune(i)}
+                  style={{
+                    cursor: "pointer",
+                    border: `1px solid ${on ? c.color : "#333"}`,
+                    background: on ? c.color : "transparent",
+                    color: on ? "#000" : c.color,
+                    fontFamily: "inherit",
+                    fontWeight: 900,
+                    fontSize: "0.68rem",
+                    letterSpacing: "0.08em",
+                    padding: "0.3rem 0.55rem",
+                  }}
+                >
+                  {pad(c.num)} {c.name}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* ───── TICKER ───── */}
+          {tiles.length > 0 && (
+            <div style={{ overflow: "hidden", whiteSpace: "nowrap", marginTop: "1rem", borderTop: "1px solid #222", paddingTop: "0.55rem" }}>
+              <div style={{ display: "inline-block", animation: "fz-marq 40s linear infinite" }}>
+                {[...tiles, ...tiles].map((t, i) => (
+                  <span key={i} style={{ color: TT.grey, fontSize: "0.68rem", letterSpacing: "0.06em", marginRight: "2.5rem" }}>
+                    <span style={{ color: TT.cyan }}>◂</span> {t.topMarket || t.label} <span style={{ color: TT.yellow, fontWeight: 900 }}>{Math.round(t.topYesPct)}%</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* FastText — the four-colour navigation bar (jumps to channels) */}
           <div style={{ display: "flex", gap: 0, marginTop: "1.1rem" }}>
             {[
-              { c: TT.red, l: "MARKETS" },
-              { c: TT.green, l: "OPERATORS" },
-              { c: TT.yellow, l: "BROADCAST" },
-              { c: TT.cyan, l: "DENPA.AI" },
+              { c: TT.red, l: "NEWS", idx: CHANNELS.findIndex((x) => x.name === "NEWS") },
+              { c: TT.green, l: "RANK", idx: CHANNELS.findIndex((x) => x.kind === "rank") },
+              { c: TT.yellow, l: "GUIDE", idx: CHANNELS.findIndex((x) => x.kind === "guide") },
+              { c: TT.cyan, l: "SPORT", idx: CHANNELS.findIndex((x) => x.name === "SPORT") },
             ].map((b) => (
-              <span
+              <button
                 key={b.l}
-                style={{
-                  flex: 1,
-                  textAlign: "center",
-                  background: b.c,
-                  color: "#000",
-                  fontWeight: 900,
-                  fontSize: "0.7rem",
-                  letterSpacing: "0.1em",
-                  padding: "0.45rem 0",
-                }}
+                onClick={() => b.idx >= 0 && tune(b.idx)}
+                style={{ flex: 1, textAlign: "center", background: b.c, color: "#000", fontWeight: 900, fontSize: "0.7rem", letterSpacing: "0.1em", padding: "0.45rem 0", border: "none", cursor: "pointer", fontFamily: "inherit" }}
               >
                 {b.l}
-              </span>
+              </button>
             ))}
           </div>
           <div style={{ color: TT.grey, fontSize: "0.62rem", letterSpacing: "0.04em", paddingTop: "0.7rem" }}>
-            DENPA PROTOCOL FORK · DATA VIA denpa.ai + api-production · markets via Polymarket
+            DENPA PROTOCOL FORK · IPTV STARTER · DATA VIA denpa.ai + api-production · markets via Polymarket
           </div>
         </div>
       </main>
