@@ -324,18 +324,21 @@ export default function App() {
     };
   }, []);
 
-  // Tuned channel's schedule — fetch on tune (if uncached) + 30s refresh.
+  // All market channels' schedules, fetched together — so the zapper can show
+  // which channels are live and tuning is instant. Initial + 30s refresh.
   useEffect(() => {
-    if (channel.kind !== "markets" || !channel.cat) return;
-    const cat = channel.cat;
+    const cats = CHANNELS.filter((c) => c.kind === "markets" && c.cat).map((c) => c.cat!);
     let live = true;
     const load = async () => {
-      try {
-        const segs = await fetchSchedule(cat);
-        if (live) setSchedCache((c) => ({ ...c, [cat]: segs }));
-      } catch {
-        if (live) setSchedCache((c) => ({ ...c, [cat]: [] }));
-      }
+      const results = await Promise.allSettled(cats.map((cat) => fetchSchedule(cat)));
+      if (!live) return;
+      setSchedCache((prev) => {
+        const next = { ...prev };
+        results.forEach((r, i) => {
+          next[cats[i]] = r.status === "fulfilled" ? r.value : (next[cats[i]] ?? []);
+        });
+        return next;
+      });
     };
     void load();
     const id = setInterval(() => void load(), 30_000);
@@ -343,7 +346,7 @@ export default function App() {
       live = false;
       clearInterval(id);
     };
-  }, [channel.kind, channel.cat]);
+  }, []);
 
   // Now-playing market for the tuned channel: ON AIR first, else soonest.
   const sched = channel.cat ? schedCache[channel.cat] : undefined;
@@ -511,10 +514,15 @@ export default function App() {
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
             {CHANNELS.map((c, i) => {
               const on = i === chIdx;
+              const count =
+                c.kind === "markets" ? (c.cat ? schedCache[c.cat]?.length : undefined) : c.kind === "rank" ? board.length : tiles.length;
+              const isLive = (count ?? 0) > 0;
+              const dot = on ? "#000" : isLive ? TT.green : "#444";
               return (
                 <button
                   key={c.num}
                   onClick={() => tune(i)}
+                  title={count === undefined ? "tuning…" : isLive ? `${count} live` : "no signal"}
                   style={{
                     cursor: "pointer",
                     border: `1px solid ${on ? c.color : "#333"}`,
@@ -527,7 +535,7 @@ export default function App() {
                     padding: "0.3rem 0.55rem",
                   }}
                 >
-                  {pad(c.num)} {c.name}
+                  <span style={{ color: dot }}>●</span> {pad(c.num)} {c.name}
                 </button>
               );
             })}
