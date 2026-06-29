@@ -416,7 +416,7 @@ export default function App() {
           </div>
 
           {/* Masthead + tuned-channel readout */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", margin: "0.7rem 0 0.15rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "0.2rem 0.8rem", margin: "0.7rem 0 0.15rem" }}>
             <div style={{ color: TT.yellow, fontWeight: 900, fontSize: "2rem", letterSpacing: "0.04em" }}>DENPA IPTV</div>
             <div style={{ color: channel.color, fontWeight: 900, fontSize: "1.1rem", letterSpacing: "0.12em" }}>
               CH {pad(channel.num)} ▸ {channel.name}
