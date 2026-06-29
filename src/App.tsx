@@ -456,13 +456,22 @@ export default function App() {
                   <div style={{ ...row, color: TT.grey, fontSize: "0.66rem", letterSpacing: "0.1em" }}>
                     <span style={{ width: "2rem", flexShrink: 0 }}>#</span>
                     <span style={{ flex: 1 }}>OPERATOR</span>
+                    <span style={{ width: "4.5rem", textAlign: "right", flexShrink: 0 }}>W–L</span>
                     <span style={{ width: "4rem", textAlign: "right", flexShrink: 0 }}>SCORE</span>
                     <span style={{ width: "4rem", textAlign: "right", flexShrink: 0 }}>ACC</span>
                   </div>
                   {board.map((o) => (
                     <a key={o.privyId} href={denpaLinks.operator(o.callsign)} target="_blank" rel="noreferrer" style={{ ...row, textDecoration: "none" }}>
                       <span style={{ color: TT.cyan, width: "2rem", flexShrink: 0 }}>{o.rank}</span>
-                      <span style={{ ...cell, color: TT.white, flex: 1 }}>{o.displayName || o.callsign}</span>
+                      <span style={{ ...cell, color: TT.white, flex: 1 }}>
+                        {o.displayName || o.callsign}
+                        {o.pending > 0 && <span style={{ color: TT.grey, fontSize: "0.62rem" }}> · {o.pending} OPEN</span>}
+                      </span>
+                      <span style={{ width: "4.5rem", textAlign: "right", flexShrink: 0, fontSize: "0.72rem" }}>
+                        <span style={{ color: TT.green }}>{o.won}</span>
+                        <span style={{ color: TT.grey }}>–</span>
+                        <span style={{ color: TT.red }}>{o.lost}</span>
+                      </span>
                       <span style={{ color: TT.yellow, width: "4rem", textAlign: "right", flexShrink: 0, fontWeight: 900 }}>{o.score}</span>
                       <span style={{ color: TT.green, width: "4rem", textAlign: "right", flexShrink: 0 }}>{o.accuracy}%</span>
                     </a>
