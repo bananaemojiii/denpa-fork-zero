@@ -78,4 +78,8 @@ src/
 - **SIGNAL writes:** go through the API service (API-key gated) — not a second
   source of truth. Keep one canonical signal per the protocol.
 
+## License
+
+MIT — see [LICENSE](./LICENSE). Clone it, reskin it, ship your own vertical.
+
 Built on the Denpa protocol. Not financial advice.
