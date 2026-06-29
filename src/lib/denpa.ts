@@ -82,7 +82,7 @@ export async function fetchSchedule(cat = "sport"): Promise<BroadcastSegment[]> 
   return flat.filter((s) => s.endsInMs > 0).sort((a, b) => a.endsInMs - b.endsInMs);
 }
 
-/* ───────────── Price history / chart (denpa.ai → Polymarket CLOB) ───────────── */
+/* ───────────── Price history / chart (denpa.ai) ───────────── */
 export interface PricePoint {
   ts: number; // unix ms
   p: number; // YES probability 0–100
@@ -101,13 +101,13 @@ export async function fetchHistory(marketId: string): Promise<PricePoint[]> {
   }
 }
 
-/* ───────────── IPTV channels — each market category is a channel ───────────── */
+/* ───────────── Channels — each market category is a channel ───────────── */
 export interface Channel {
   num: number;
   name: string;
   kind: "markets" | "rank" | "guide";
   cat?: string; // schedule category for kind:"markets"
-  color: string; // teletext accent
+  color: string; // channel accent
 }
 
 // CH 1–7 are live market categories (schedule cat); CH 8 RANK is the operator

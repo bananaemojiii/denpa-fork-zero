@@ -1,41 +1,48 @@
-# DENPA IPTV — FORK ZERO
+# DENPA — The New Media Primitive · Fork Zero
 
-A **prediction-television** protocol fork of [Denpa](https://denpa.ai), styled as
-a **Ceefax / static-TV** set. Every market category is a **channel**; each channel
-airs its hottest market as a "now playing" segment with a live YES/NO split, a
-60-minute price chart, a countdown to resolution, and SIGNAL actions. Tune with
-the on-screen zapper, the **1–9** number keys, or **▲ / ▼**.
+## What is Denpa
 
-The fork owns its surface; markets, signals, charts, operators and the broadcast
-schedule all resolve **through denpa.ai** — there is no second backend. This is
-the reference shape for a Denpa fork (Layer 14 protocol APIs over HTTP) and a
-clone-and-run starting point for building your own vertical.
+**Denpa is a new media primitive: every prediction market becomes a live,
+programmable media surface.** You watch a market move, file a YES/NO **signal**,
+explain your call, and build a public **field record** of your judgment. The loop
+is the product:
+
+> **Watch → Signal → Explain → Resolve → Rank → Follow**
+
+This repo — **Fork Zero** — is the reference client for that primitive: a live
+broadcast of market signals you can clone, reskin and ship as your own vertical.
+It owns its surface (a static-TV broadcast set); markets, signals, charts,
+operators and the schedule all resolve **through denpa.ai** — there is no second
+backend.
+
+Tune with the on-screen zapper, the **1–9** number keys, or **▲ / ▼**.
 
 ## Channels
 
-| CH | Channel  | Source |
-|----|----------|--------|
-| 01 | SPORT    | `broadcast/schedule?cat=sport` |
-| 02 | CRYPTO   | `…?cat=crypto` |
-| 03 | POLITICS | `…?cat=politics` |
-| 04 | CULTURE  | `…?cat=culture` |
-| 05 | MUSIC    | `…?cat=music` |
-| 06 | NEWS     | `…?cat=news` |
-| 07 | SCIENCE  | `…?cat=science` |
-| 08 | RANK     | `api…/v1/signals/leaderboard` — operator field records |
-| 09 | GUIDE    | `polymarket/featured` — top markets across the protocol |
+Every market category is a channel.
+
+| CH | Channel  | Airs |
+|----|----------|------|
+| 01 | SPORT    | live sport markets |
+| 02 | CRYPTO   | live crypto markets |
+| 03 | POLITICS | live politics markets |
+| 04 | CULTURE  | live culture markets |
+| 05 | MUSIC    | live music markets |
+| 06 | NEWS     | live news markets |
+| 07 | SCIENCE  | live science markets |
+| 08 | RANK     | operator leaderboard — public field records |
+| 09 | GUIDE    | top markets across the protocol |
 
 A channel with no live markets shows the animated **NO SIGNAL** dead-channel
-screen — authentic dead air. Every feed refreshes every 30s and fails
-independently.
+screen. Every feed refreshes every 30s and fails independently.
 
 ## What each market channel airs
 
-- **NOW PLAYING** — the ON-AIR (or soonest-resolving) market for the channel
-- **YES / NO** — live split bars (green YES, cyan NO)
-- **CHART** — 60 min of 1-minute YES price history (`polymarket/history`)
+- **NOW PLAYING** — the on-air (or soonest-resolving) market for the channel
+- **YES / NO** — live split bars
+- **CHART** — 60 min of 1-minute YES price history + a live ▲/▼ change readout
 - **RESOLVES IN** — live countdown
-- **GUIDE — UP NEXT** — the channel's EPG (upcoming listings)
+- **GUIDE — UP NEXT** — the channel's listings
 - **▸ SIGNAL YES / NO** — opens the denpa.ai market page to file a forecast
   (money-free; one canonical signal per the protocol)
 
@@ -49,33 +56,32 @@ npm run dev            # http://localhost:5173
 
 ## Config
 
-`.env` (Vite):
+`.env` (Vite) — both point at denpa.ai infrastructure:
 
 ```
-VITE_DENPA_API=https://api-production-802f5.up.railway.app   # leaderboard / signals
-VITE_DENPA_WEB=https://denpa.ai                              # heatmap / schedule / charts
+VITE_DENPA_API=https://api-production-802f5.up.railway.app   # signal leaderboard
+VITE_DENPA_WEB=https://denpa.ai                              # markets / schedule / charts
 ```
 
-Both backends send `Access-Control-Allow-Origin` to fork origins, so the browser
-reads them cross-origin from `localhost` or any deployed fork domain.
+denpa.ai sends `Access-Control-Allow-Origin` to fork origins, so the browser
+reads it cross-origin from `localhost` or any deployed fork domain.
 
 ## Structure
 
 ```
 src/
-  App.tsx        the IPTV set — channels, zapper, now-playing screen, EPG, ticker
-  lib/denpa.ts   typed protocol client (leaderboard / heatmap / schedule / history / CHANNELS)
-  index.css      teletext base (black, blocky monospace)
+  App.tsx        the broadcast set — channels, zapper, now-playing screen, listings, ticker
+  lib/denpa.ts   typed denpa.ai client (leaderboard / markets / schedule / history / CHANNELS)
+  index.css      black, blocky monospace base
 ```
 
 ## Extending the fork
 
 - **Add a channel:** push to `CHANNELS` in `src/lib/denpa.ts` with a schedule
-  `cat`. The categorizer's vocabulary lives in the Denpa monorepo
-  (`services/program-clock/src/categories.ts`).
-- **Reskin:** the whole look is the `TT` teletext palette in `App.tsx` — swap it
-  for your vertical's theme.
-- **SIGNAL writes:** go through the API service (API-key gated) — not a second
+  category.
+- **Reskin:** the whole look is the `TT` palette in `App.tsx` — swap it for your
+  vertical's theme.
+- **SIGNAL writes:** go through the denpa.ai signal API (key-gated) — not a second
   source of truth. Keep one canonical signal per the protocol.
 
 ## License

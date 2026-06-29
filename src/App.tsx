@@ -13,7 +13,7 @@ import {
   type PricePoint,
 } from "./lib/denpa";
 
-// Classic Ceefax / teletext palette — the retro skin IS the surface.
+// Retro broadcast palette — the static-TV skin IS the surface.
 const TT = {
   bg: "#000000",
   white: "#ffffff",
@@ -145,7 +145,7 @@ function Sparkline({ points, color }: { points: PricePoint[]; color: string }) {
   );
 }
 
-/* ───────────── Section header (teletext page tab) ───────────── */
+/* ───────────── Section header (page tab) ───────────── */
 function SectionHead({ page, title, color }: { page: string; title: string; color: string }) {
   return (
     <div
@@ -409,7 +409,7 @@ export default function App() {
           {/* Header line: page no · masthead · date+clock */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: "0.85rem", letterSpacing: "0.08em" }}>
             <span style={{ color: TT.white }}>P{100 + channel.num}</span>
-            <span style={{ color: TT.cyan, fontWeight: 900, letterSpacing: "0.2em" }}>DENPA · IPTV</span>
+            <span style={{ color: TT.cyan, fontWeight: 900, letterSpacing: "0.2em" }}>DENPA · SIGNAL</span>
             <span style={{ color: TT.green }}>
               {fmtDate(now)} {fmtClock(now)}
             </span>
@@ -417,13 +417,13 @@ export default function App() {
 
           {/* Masthead + tuned-channel readout */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "0.2rem 0.8rem", margin: "0.7rem 0 0.15rem" }}>
-            <div style={{ color: TT.yellow, fontWeight: 900, fontSize: "2rem", letterSpacing: "0.04em" }}>DENPA IPTV</div>
+            <div style={{ color: TT.yellow, fontWeight: 900, fontSize: "2rem", letterSpacing: "0.04em" }}>DENPA</div>
             <div style={{ color: channel.color, fontWeight: 900, fontSize: "1.1rem", letterSpacing: "0.12em" }}>
               CH {pad(channel.num)} ▸ {channel.name}
             </div>
           </div>
           <div style={{ color: TT.grey, fontSize: "0.7rem", letterSpacing: "0.18em", borderBottom: `2px solid ${TT.magenta}`, paddingBottom: "0.6rem" }}>
-            PREDICTION TELEVISION · FORK ZERO · LIVE VIA DENPA PROTOCOL{errors > 0 ? `  ·  ${errors} FEED(S) OFFLINE` : ""}
+            THE NEW MEDIA PRIMITIVE — EVERY MARKET A LIVE SIGNAL · FORK ZERO · denpa.ai{errors > 0 ? `  ·  ${errors} FEED(S) OFFLINE` : ""}
           </div>
 
           {/* ───── THE SCREEN ───── */}
@@ -554,7 +554,7 @@ export default function App() {
             </div>
           )}
 
-          {/* FastText — the four-colour navigation bar (jumps to channels) */}
+          {/* Four-colour navigation bar (jumps to channels) */}
           <div style={{ display: "flex", gap: 0, marginTop: "1.1rem" }}>
             {[
               { c: TT.red, l: "NEWS", idx: CHANNELS.findIndex((x) => x.name === "NEWS") },
@@ -572,7 +572,7 @@ export default function App() {
             ))}
           </div>
           <div style={{ color: TT.grey, fontSize: "0.62rem", letterSpacing: "0.04em", paddingTop: "0.7rem" }}>
-            DENPA PROTOCOL FORK · IPTV STARTER · DATA VIA denpa.ai + api-production · markets via Polymarket
+            DENPA PROTOCOL · REFERENCE FORK · LIVE VIA denpa.ai
           </div>
         </div>
       </main>
