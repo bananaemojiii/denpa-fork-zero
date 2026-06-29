@@ -181,6 +181,8 @@ function NowPlaying({
 }) {
   const yes = Math.round(seg.yesPrice);
   const no = 100 - yes;
+  // 60-minute YES move from the fetched history (first → last point).
+  const delta = history.length >= 2 ? history[history.length - 1].p - history[0].p : null;
   return (
     <div style={{ background: "#070707", padding: "1rem 1.1rem 1.1rem" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -224,6 +226,14 @@ function NowPlaying({
       </div>
 
       {/* 60-min YES price chart */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", color: TT.grey, fontSize: "0.62rem", letterSpacing: "0.1em" }}>
+        <span>60M CHART · YES</span>
+        {delta !== null && (
+          <span style={{ color: delta >= 0 ? TT.green : TT.red, fontWeight: 900 }}>
+            {delta >= 0 ? "▲" : "▼"} {delta >= 0 ? "+" : ""}{delta.toFixed(1)} / 60M
+          </span>
+        )}
+      </div>
       <Sparkline points={history} color={channel.color} />
 
       <div style={{ display: "flex", justifyContent: "space-between", color: TT.grey, fontSize: "0.64rem", letterSpacing: "0.08em", marginTop: "0.35rem" }}>
