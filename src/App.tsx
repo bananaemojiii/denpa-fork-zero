@@ -1,16 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type Hls from "hls.js";
 import {
   fetchLeaderboard,
   fetchHeatmap,
   fetchSchedule,
   fetchHistory,
+  fetchProgram,
+  fetchSituations,
+  fetchTapes,
+  fetchNetworkOperators,
+  laneFor,
+  marketRoute,
   denpaLinks,
   CHANNELS,
   type Channel,
   type OperatorRank,
   type HeatmapTile,
   type BroadcastSegment,
+  type ProgramLane,
+  type ProgramSegment,
   type PricePoint,
+  type Situation,
+  type Tape,
+  type NetOperator,
 } from "./lib/denpa";
 
 // Retro broadcast palette — the static-TV skin IS the surface.
@@ -173,11 +185,13 @@ function NowPlaying({
   channel,
   history,
   remainMs,
+  onClock,
 }: {
   seg: BroadcastSegment;
   channel: Channel;
   history: PricePoint[];
   remainMs: number;
+  onClock: boolean; // true when the segment comes from the canonical channel clock
 }) {
   const yes = Math.round(seg.yesPrice);
   const no = 100 - yes;
@@ -190,7 +204,7 @@ function NowPlaying({
           ● ON AIR
         </span>
         <span style={{ color: TT.grey, fontSize: "0.66rem", letterSpacing: "0.12em" }}>
-          RESOLVES IN {fmtCountdown(remainMs)}
+          {onClock ? "CHANNEL CLOCK · NEXT IN" : "RESOLVES IN"} {fmtCountdown(remainMs)}
         </span>
       </div>
 
@@ -265,6 +279,95 @@ function NowPlaying({
   );
 }
 
+/* ───────────── WIRE — what moved (situations) ───────────── */
+function WireBoard({ items }: { items: Situation[] }) {
+  if (items.length === 0) return <TvStatic caption="WIRE OFFLINE — NO SITUATIONS IN WINDOW" />;
+  const critColor = (c: string) => (c === "Critical" ? TT.red : c === "Elevated" ? TT.yellow : TT.grey);
+  return (
+    <>
+      <div style={{ ...row, color: TT.grey, fontSize: "0.66rem", letterSpacing: "0.1em" }}>
+        <span style={{ width: "5.2rem", flexShrink: 0 }}>LANE</span>
+        <span style={{ flex: 1 }}>SITUATION · 24H</span>
+        <span style={{ width: "4.6rem", textAlign: "right", flexShrink: 0 }}>MOVE</span>
+        <span style={{ width: "4.4rem", textAlign: "right", flexShrink: 0 }}>VOL</span>
+      </div>
+      {items.map((s) => {
+        const pts = Math.round(s.peakDelta * 100);
+        return (
+          <a key={s.id} href={denpaLinks.market(marketRoute(s.leadMarketId))} target="_blank" rel="noreferrer" style={{ ...row, textDecoration: "none" }} title={`${s.criticality} · ${s.marketCount} market(s) · ${s.provider}`}>
+            <span style={{ width: "5.2rem", flexShrink: 0, fontSize: "0.64rem", letterSpacing: "0.08em", color: critColor(s.criticality) }}>
+              {s.criticality === "Critical" ? "▮ " : ""}{s.lane}
+            </span>
+            <span style={{ ...cell, color: TT.white, flex: 1 }}>{s.headline}</span>
+            <span style={{ width: "4.6rem", textAlign: "right", flexShrink: 0, fontWeight: 900, color: pts >= 0 ? TT.green : TT.cyan }}>
+              {pts >= 0 ? "▲" : "▼"} {Math.abs(pts)}
+            </span>
+            <span style={{ width: "4.4rem", textAlign: "right", flexShrink: 0, color: TT.grey, fontSize: "0.66rem" }}>${Math.round(s.volume / 1000)}K</span>
+          </a>
+        );
+      })}
+    </>
+  );
+}
+
+/* ───────────── TAPE — the federated clip reel, played as a channel ─────────────
+   hls.js first (Chrome 152+ native HLS renders black on some CDNs), native <video> as the fallback. */
+function TapePlayer({ tapes }: { tapes: Tape[] }) {
+  const [i, setI] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const tape = tapes[i];
+  const next = useCallback(() => setI((x) => (tapes.length ? (x + 1) % tapes.length : 0)), [tapes.length]);
+  const prev = useCallback(() => setI((x) => (tapes.length ? (x - 1 + tapes.length) % tapes.length : 0)), [tapes.length]);
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !tape) return;
+    let hls: Hls | null = null;
+    let live = true;
+    // hls.js is loaded on first use so the broadcast set's first paint stays small.
+    void import("hls.js").then(({ default: HlsCtor }) => {
+      if (!live) return;
+      if (HlsCtor.isSupported()) {
+        hls = new HlsCtor({ enableWorker: true });
+        hls.loadSource(tape.url);
+        hls.attachMedia(v);
+      } else {
+        v.src = tape.url; // Safari: native HLS
+      }
+      void v.play().catch(() => {});
+    });
+    return () => {
+      live = false;
+      hls?.destroy();
+      v.removeAttribute("src");
+    };
+  }, [tape]);
+  if (!tape) return <TvStatic caption="TAPE OFFLINE — NO CLIPS ON THE NETWORK" />;
+  const stanceColor = tape.stance === "YES" ? TT.green : tape.stance === "NO" ? TT.cyan : TT.grey;
+  return (
+    <div style={{ background: "#070707" }}>
+      <div style={{ position: "relative", background: "#000", aspectRatio: "16 / 9", maxHeight: 420 }}>
+        <video ref={videoRef} muted autoPlay playsInline onEnded={next} style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+        <div style={{ position: "absolute", left: 10, top: 8, color: TT.red, fontWeight: 900, letterSpacing: "0.14em", fontSize: "0.72rem", animation: "fz-blink 1s steps(1) infinite" }}>● TAPE</div>
+        <div style={{ position: "absolute", right: 10, top: 8, color: TT.grey, fontSize: "0.66rem", letterSpacing: "0.1em" }}>{i + 1} / {tapes.length}</div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "0.6rem 0.9rem 0.2rem", gap: "0.6rem", flexWrap: "wrap" }}>
+        <a href={tape.href} target="_blank" rel="noreferrer" style={{ color: TT.white, fontWeight: 900, textDecoration: "none" }}>
+          @{tape.handle} <span style={{ color: TT.grey, fontWeight: 400, fontSize: "0.66rem", letterSpacing: "0.1em" }}>· {tape.origin.toUpperCase()}</span>
+        </a>
+        <span style={{ color: stanceColor, fontWeight: 900, letterSpacing: "0.12em", fontSize: "0.72rem" }}>SIGNAL {tape.stance}</span>
+        <span style={{ color: TT.grey, fontSize: "0.66rem", letterSpacing: "0.08em" }}>{tape.durationS}S · {tape.views} VIEWS{tape.boosted ? " · BOOSTED" : ""}</span>
+      </div>
+      <div style={{ display: "flex", gap: 0, padding: "0.5rem 0.9rem 0.9rem" }}>
+        <button onClick={prev} style={{ background: "transparent", color: TT.white, border: "1px solid #333", fontFamily: "inherit", fontWeight: 900, padding: "0.4rem 0.7rem", cursor: "pointer" }}>◂ PREV</button>
+        <a href={denpaLinks.market(`/m/${tape.marketId}`)} target="_blank" rel="noreferrer" style={{ flex: 1, textAlign: "center", background: TT.magenta, color: "#000", fontWeight: 900, fontSize: "0.72rem", letterSpacing: "0.12em", padding: "0.5rem 0", textDecoration: "none" }}>
+          ▸ OPEN MARKET
+        </a>
+        <button onClick={next} style={{ background: "transparent", color: TT.white, border: "1px solid #333", fontFamily: "inherit", fontWeight: 900, padding: "0.4rem 0.7rem", cursor: "pointer" }}>NEXT ▸</button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [now, setNow] = useState(new Date());
   const [chIdx, setChIdx] = useState(0);
@@ -273,7 +376,11 @@ export default function App() {
   // Per-channel schedule cache (cat → segments) + global feeds.
   const [schedCache, setSchedCache] = useState<Record<string, BroadcastSegment[]>>({});
   const [board, setBoard] = useState<OperatorRank[]>([]);
+  const [netOps, setNetOps] = useState<NetOperator[]>([]);
   const [tiles, setTiles] = useState<HeatmapTile[]>([]);
+  const [program, setProgram] = useState<ProgramLane[] | null>(null);
+  const [situations, setSituations] = useState<Situation[]>([]);
+  const [tapes, setTapes] = useState<Tape[]>([]);
   const [history, setHistory] = useState<PricePoint[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [errors, setErrors] = useState(0);
@@ -292,8 +399,11 @@ export default function App() {
   }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key >= "1" && e.key <= "9") {
+      if (e.key >= "0" && e.key <= "9") {
         const found = CHANNELS.findIndex((c) => c.num === Number(e.key));
+        if (found >= 0) tune(found);
+      } else if (e.key === "t" || e.key === "T") {
+        const found = CHANNELS.findIndex((c) => c.kind === "tape");
         if (found >= 0) tune(found);
       } else if (e.key === "ArrowUp") tune(chIdx - 1);
       else if (e.key === "ArrowDown") tune(chIdx + 1);
@@ -306,12 +416,27 @@ export default function App() {
   useEffect(() => {
     let live = true;
     const load = async () => {
-      const [lb, hm] = await Promise.allSettled([fetchLeaderboard(20), fetchHeatmap()]);
+      const [lb, hm, pg, st, tp, op] = await Promise.allSettled([
+        fetchLeaderboard(20),
+        fetchHeatmap(),
+        fetchProgram("resolving"),
+        fetchSituations(30, "24h"),
+        fetchTapes(20),
+        fetchNetworkOperators(),
+      ]);
       if (!live) return;
       let errs = 0;
       if (lb.status === "fulfilled") setBoard(lb.value);
       else errs++;
       if (hm.status === "fulfilled") setTiles(hm.value);
+      else errs++;
+      if (pg.status === "fulfilled") setProgram(pg.value);
+      else errs++;
+      if (st.status === "fulfilled") setSituations(st.value);
+      else errs++;
+      if (tp.status === "fulfilled") setTapes(tp.value);
+      else errs++;
+      if (op.status === "fulfilled") setNetOps(op.value);
       else errs++;
       setErrors(errs);
       setLoaded(true);
@@ -348,13 +473,29 @@ export default function App() {
     };
   }, []);
 
-  // Now-playing market for the tuned channel: ON AIR first, else soonest.
+  // Now-playing for the tuned channel. The canonical channel clock wins when it carries this
+  // lane (the content segment on air right now, else the next one); otherwise fall back to
+  // the legacy schedule: ON AIR first, else soonest to resolve.
   const sched = channel.cat ? schedCache[channel.cat] : undefined;
-  const nowSeg = useMemo(() => {
+  const lane = channel.cat ? laneFor(program, channel.cat) : undefined;
+  const clockSegs = useMemo(() => {
+    const t = now.getTime();
+    const content = (lane?.segs ?? []).filter((s) => s.kind === "content" && new Date(s.endDate).getTime() > t);
+    return content.sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
+  }, [lane, now]);
+  const onClock = clockSegs.length > 0;
+  const nowSeg: BroadcastSegment | ProgramSegment | null = useMemo(() => {
+    if (onClock) return clockSegs[0];
     if (!sched || sched.length === 0) return null;
     return sched.find((s) => s.bucket === "ON AIR") ?? sched[0];
-  }, [sched]);
-  const guide = useMemo(() => (sched ?? []).filter((s) => s.id !== nowSeg?.id).slice(0, 12), [sched, nowSeg]);
+  }, [onClock, clockSegs, sched]);
+  const guide = useMemo<(BroadcastSegment | ProgramSegment)[]>(() => {
+    if (onClock) {
+      const seen = new Set<string>([clockSegs[0].id]);
+      return clockSegs.slice(1).filter((s) => (seen.has(s.id) ? false : (seen.add(s.id), true))).slice(0, 12);
+    }
+    return (sched ?? []).filter((s) => s.id !== nowSeg?.id).slice(0, 12);
+  }, [onClock, clockSegs, sched, nowSeg]);
 
   // Price history follows the now-playing market.
   useEffect(() => {
@@ -379,7 +520,7 @@ export default function App() {
   useEffect(() => {
     fetchedAt.current = Date.now();
   }, [sched]);
-  const remainMs = nowSeg ? nowSeg.endsInMs - (now.getTime() - fetchedAt.current) : 0;
+  const remainMs = !nowSeg ? 0 : onClock ? new Date(nowSeg.endDate).getTime() - now.getTime() : nowSeg.endsInMs - (now.getTime() - fetchedAt.current);
 
   return (
     <div style={{ position: "relative", minHeight: "100vh", background: TT.bg }}>
@@ -423,7 +564,7 @@ export default function App() {
             </div>
           </div>
           <div style={{ color: TT.grey, fontSize: "0.7rem", letterSpacing: "0.18em", borderBottom: `2px solid ${TT.magenta}`, paddingBottom: "0.6rem" }}>
-            THE NEW MEDIA PRIMITIVE — EVERY MARKET A LIVE SIGNAL · FORK ZERO · denpa.ai{errors > 0 ? `  ·  ${errors} FEED(S) OFFLINE` : ""}
+            THE NEW MEDIA PRIMITIVE — EVERY MARKET A LIVE SIGNAL · FORK ZERO · denpa.ai{program ? "  ·  CHANNEL CLOCK LIVE" : ""}{errors > 0 ? `  ·  ${errors} FEED(S) OFFLINE` : ""}
           </div>
 
           {/* ───── THE SCREEN ───── */}
@@ -438,14 +579,14 @@ export default function App() {
               </div>
             ) : nowSeg ? (
               <div style={{ marginTop: "1rem" }}>
-                <NowPlaying seg={nowSeg} channel={channel} history={history} remainMs={remainMs} />
+                <NowPlaying seg={nowSeg} channel={channel} history={history} remainMs={remainMs} onClock={onClock} />
                 {/* EPG guide for this channel */}
                 {guide.length > 0 && (
                   <>
-                    <SectionHead page={`P${100 + channel.num}.G`} title="GUIDE — UP NEXT" color={channel.color} />
+                    <SectionHead page={`P${100 + channel.num}.G`} title={onClock ? "CHANNEL CLOCK — UP NEXT" : "GUIDE — UP NEXT"} color={channel.color} />
                     {guide.map((s) => (
-                      <a key={s.id} href={denpaLinks.market(`/m/${s.id}`)} target="_blank" rel="noreferrer" style={{ ...row, textDecoration: "none" }}>
-                        <span style={{ color: TT.cyan, width: "3.4rem", flexShrink: 0 }}>{hhmm(s.endDate)}</span>
+                      <a key={"segmentId" in s ? s.segmentId : s.id} href={denpaLinks.market(`/m/${s.id}`)} target="_blank" rel="noreferrer" style={{ ...row, textDecoration: "none" }}>
+                        <span style={{ color: TT.cyan, width: "3.4rem", flexShrink: 0 }}>{hhmm("startsAt" in s ? s.startsAt : s.endDate)}</span>
                         <span style={{ ...cell, color: TT.white, flex: 1 }}>{s.title}</span>
                         <span style={{ color: TT.grey, width: "5rem", flexShrink: 0, fontSize: "0.64rem", ...cell }}>{s.bucket}</span>
                         <span style={{ color: TT.yellow, width: "3rem", textAlign: "right", flexShrink: 0, fontWeight: 900 }}>{Math.round(s.yesPrice)}%</span>
@@ -461,8 +602,34 @@ export default function App() {
             )
           ) : channel.kind === "rank" ? (
             <>
-              <SectionHead page="P108" title="SIGNAL LEADERBOARD" color={TT.green} />
-              {board.length === 0 ? (
+              <SectionHead page="P108" title={netOps.length ? "NETWORK OPERATOR BOARD" : "SIGNAL LEADERBOARD"} color={TT.green} />
+              {netOps.length > 0 ? (
+                <>
+                  <div style={{ ...row, color: TT.grey, fontSize: "0.66rem", letterSpacing: "0.1em" }}>
+                    <span style={{ width: "2rem", flexShrink: 0 }}>#</span>
+                    <span style={{ flex: 1 }}>OPERATOR · STATION</span>
+                    <span style={{ width: "4.5rem", textAlign: "right", flexShrink: 0 }}>W–L</span>
+                    <span style={{ width: "4rem", textAlign: "right", flexShrink: 0 }}>SCORE</span>
+                    <span style={{ width: "4rem", textAlign: "right", flexShrink: 0 }}>ACC</span>
+                  </div>
+                  {netOps.map((o, idx) => (
+                    <a key={`${o.origin}:${o.handle}`} href={o.href} target="_blank" rel="noreferrer" style={{ ...row, textDecoration: "none" }}>
+                      <span style={{ color: TT.cyan, width: "2rem", flexShrink: 0 }}>{idx + 1}</span>
+                      <span style={{ ...cell, color: TT.white, flex: 1 }}>
+                        {o.displayName || o.handle}
+                        <span style={{ color: TT.grey, fontSize: "0.62rem" }}> · {o.origin.toUpperCase()}{o.pending > 0 ? ` · ${o.pending} OPEN` : ""}</span>
+                      </span>
+                      <span style={{ width: "4.5rem", textAlign: "right", flexShrink: 0, fontSize: "0.72rem" }}>
+                        <span style={{ color: TT.green }}>{o.won}</span>
+                        <span style={{ color: TT.grey }}>–</span>
+                        <span style={{ color: TT.red }}>{o.lost}</span>
+                      </span>
+                      <span style={{ color: TT.yellow, width: "4rem", textAlign: "right", flexShrink: 0, fontWeight: 900 }}>{o.score}</span>
+                      <span style={{ color: TT.green, width: "4rem", textAlign: "right", flexShrink: 0 }}>{o.accuracy}%</span>
+                    </a>
+                  ))}
+                </>
+              ) : board.length === 0 ? (
                 <TvStatic caption="LEADERBOARD OFFLINE" />
               ) : (
                 <>
@@ -492,6 +659,15 @@ export default function App() {
                 </>
               )}
             </>
+          ) : channel.kind === "wire" ? (
+            <>
+              <SectionHead page="P100" title="WIRE — WHAT MOVED" color={TT.red} />
+              <WireBoard items={situations} />
+            </>
+          ) : channel.kind === "tape" ? (
+            <div style={{ marginTop: "1rem" }}>
+              <TapePlayer tapes={tapes} />
+            </div>
           ) : (
             <>
               <SectionHead page="P109" title="GUIDE — TOP MARKETS" color={TT.cyan} />
@@ -510,12 +686,17 @@ export default function App() {
           )}
 
           {/* ───── CHANNEL ZAPPER ───── */}
-          <SectionHead page="ZAP" title="CHANNELS — ▲▼ OR 1–9" color={TT.white} />
+          <SectionHead page="ZAP" title="CHANNELS — ▲▼ · 0–9 · T" color={TT.white} />
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
             {CHANNELS.map((c, i) => {
               const on = i === chIdx;
               const count =
-                c.kind === "markets" ? (c.cat ? schedCache[c.cat]?.length : undefined) : c.kind === "rank" ? board.length : tiles.length;
+                c.kind === "markets"
+                  ? (c.cat ? (laneFor(program, c.cat)?.segs.length || schedCache[c.cat]?.length) : undefined)
+                  : c.kind === "rank" ? (netOps.length || board.length)
+                  : c.kind === "wire" ? situations.length
+                  : c.kind === "tape" ? tapes.length
+                  : tiles.length;
               const isLive = (count ?? 0) > 0;
               const dot = on ? "#000" : isLive ? TT.green : "#444";
               return (
@@ -557,7 +738,7 @@ export default function App() {
           {/* Four-colour navigation bar (jumps to channels) */}
           <div style={{ display: "flex", gap: 0, marginTop: "1.1rem" }}>
             {[
-              { c: TT.red, l: "NEWS", idx: CHANNELS.findIndex((x) => x.name === "NEWS") },
+              { c: TT.red, l: "WIRE", idx: CHANNELS.findIndex((x) => x.kind === "wire") },
               { c: TT.green, l: "RANK", idx: CHANNELS.findIndex((x) => x.kind === "rank") },
               { c: TT.yellow, l: "GUIDE", idx: CHANNELS.findIndex((x) => x.kind === "guide") },
               { c: TT.cyan, l: "SPORT", idx: CHANNELS.findIndex((x) => x.name === "SPORT") },

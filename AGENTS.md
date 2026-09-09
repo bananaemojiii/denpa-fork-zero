@@ -1,8 +1,10 @@
-# AGENTS.md — DENPA IPTV · FORK ZERO
+# AGENTS.md — DENPA · FORK ZERO
 
 Instructions for any AI (Claude Code, etc.) working in this repo. This is the
-**reference fork** of the [Denpa protocol](https://denpa.ai): a Ceefax / IPTV
-broadcast surface where every market category is a TV channel.
+**reference fork** of the [Denpa protocol](https://denpa.ai): a static-TV
+broadcast surface where every market category is a channel, plus WIRE
+(situations), TAPE (federated clips) and RANK (network operator board).
+Created by Lukas Chmiel and Robert Inoma.
 
 ## Golden rules
 
@@ -20,25 +22,34 @@ broadcast surface where every market category is a TV channel.
 ## Where things are
 
 - `src/lib/denpa.ts` — the protocol client + `CHANNELS`. Exports:
-  `fetchLeaderboard`, `fetchHeatmap`, `fetchSchedule`, `fetchHistory`,
-  `CHANNELS`, `denpaLinks`, and the `OperatorRank` / `HeatmapTile` /
-  `BroadcastSegment` / `PricePoint` / `Channel` types.
-- `src/App.tsx` — the IPTV surface: `TvStatic` (the static-TV placeholder),
-  `Sparkline` (YES price chart), `NowPlaying`, the zapper, and the `TT`
-  teletext palette (the whole look lives here).
+  `fetchProgram` (channel clock) + `laneFor`, `fetchSchedule` (legacy fallback),
+  `fetchHeatmap`, `fetchHistory`, `fetchSituations` + `marketRoute`, `fetchTapes`,
+  `fetchNetworkOperators`, `fetchLeaderboard`, `CHANNELS`, `denpaLinks`, and the
+  `ProgramLane` / `ProgramSegment` / `BroadcastSegment` / `HeatmapTile` /
+  `PricePoint` / `Situation` / `Tape` / `NetOperator` / `OperatorRank` / `Channel` types.
+- `src/App.tsx` — the broadcast surface: `TvStatic` (the static-TV placeholder),
+  `Sparkline` (YES price chart), `NowPlaying`, `WireBoard`, `TapePlayer`
+  (hls.js first, native HLS fallback), the zapper, and the `TT` teletext
+  palette (the whole look lives here).
 - `src/index.css` — base (black, blocky monospace).
 
 ## Endpoints (all CORS-open, no auth for reads)
 
 ```
-GET denpa.ai/api/polymarket/featured              # home heatmap tiles
-GET denpa.ai/api/broadcast/schedule?cat=sport     # schedule (buckets + programs)
-GET denpa.ai/api/polymarket/history?market_id=ID  # YES price history (chart points)
+GET denpa.ai/api/broadcast/program?preset=resolving         # canonical channel clock ({enabled:false} when unwired)
+GET denpa.ai/api/broadcast/schedule?cat=sport               # legacy schedule (buckets + programs) — fallback
+GET denpa.ai/api/polymarket/featured                        # home heatmap tiles
+GET denpa.ai/api/polymarket/market-history?marketId=ID&interval=1H   # YES price history (legacy /history as fallback)
+GET denpa.ai/api/situations?window=24h&limit=30             # stories of belief movement (never sum deltas)
+GET denpa.ai/api/network/tapes?limit=20                     # federated clips (HLS manifests)
+GET denpa.ai/api/network/operators                          # merged operator board
 GET api-production-802f5.up.railway.app/api/v1/signals/leaderboard?operators=human
 ```
 
 Configured via `.env` (`VITE_DENPA_API`, `VITE_DENPA_WEB`); see `.env.example`.
-SIGNAL writes go through the API service (API-key gated) — reads need nothing.
+SIGNAL writes are `POST denpa.ai/api/predictions` with a `dk_` key through your
+own server route (not CORS-open) — reads need nothing. `/api/wire` and
+`/api/aura/score` are not CORS-open either; fetch them server-side if you need them.
 
 ## Common tasks
 
@@ -46,8 +57,9 @@ SIGNAL writes go through the API service (API-key gated) — reads need nothing.
 - **Build/typecheck:** `npm run build` (runs `tsc -b` then `vite build`)
 - **Add a channel:** push to `CHANNELS` in `src/lib/denpa.ts` with a schedule
   `cat` (`sport` / `crypto` / `politics` / `culture` / `music` / `news` /
-  `science`). Kind `"markets"` airs that category; `"rank"` is the leaderboard;
-  `"guide"` is the heatmap.
+  `science`). Kind `"markets"` airs that category (clock lane first, schedule
+  fallback); `"rank"` is the operator board; `"guide"` is the heatmap; `"wire"`
+  is situations; `"tape"` is the clip reel. Keys 0–9 map to `num`; T tunes TAPE.
 - **Reskin:** edit the `TT` palette in `src/App.tsx` — that's the entire look.
 
 ## Forking this into a NEW vertical

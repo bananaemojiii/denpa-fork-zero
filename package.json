@@ -1,23 +1,38 @@
 {
   "name": "denpa-fork-zero",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
-  "description": "DENPA FORK ZERO — a Ceefax/static-TV protocol fork. Owns its surface; markets, signals and the broadcast clock resolve through denpa.ai.",
+  "description": "DENPA FORK ZERO \u2014 the reference client for the Denpa protocol. Owns its surface (a static-TV broadcast set); markets, the channel clock, situations, tapes, operators and signals all resolve through denpa.ai.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "hls.js": "^1.7.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   },
   "devDependencies": {
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.4",
-    "typescript": "^5.6.3",
-    "vite": "^6.0.5"
-  }
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.2"
+  },
+  "contributors": [
+    {
+      "name": "Lukas Chmiel"
+    },
+    {
+      "name": "Robert Inoma"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bananaemojiii/denpa-fork-zero"
+  },
+  "homepage": "https://denpa.ai/developer",
+  "license": "MIT"
 }
