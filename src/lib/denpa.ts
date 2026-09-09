@@ -116,7 +116,11 @@ export async function fetchHistory(marketId: string): Promise<PricePoint[]> {
 
 /* ───────────── Channel clock — the canonical broadcast rundown (denpa.ai) ─────────────
    {enabled:false} when the clock is unwired; otherwise one lane per category with a
-   real-time rundown: 10s bumper + 10min content segments, each with startsAt/endDate. */
+   real-time rundown: 10s bumper + 10min content segments, each with startsAt/endDate.
+   preset "default" is the rundown the denpa.ai home TV itself rotates through
+   (lanes SPORTS · MUSIC · FILM · TV · FASHION · CRYPTO); hot / resolving / close are
+   computed channels. A station-scoped clock (Kalshi, other lanes) is
+   /api/network/program?providers=&categories= — same shape. */
 export interface ProgramSegment extends BroadcastSegment {
   startsAt: string;
   kind: "bumper" | "content";
@@ -126,15 +130,15 @@ export interface ProgramSegment extends BroadcastSegment {
   streams?: number;
 }
 export interface ProgramLane {
-  key: string; // "sports" | "crypto" | "politics" | "music" | …
+  key: string; // "sports" | "music" | "film" | "tv" | "fashion" | "crypto" | …
   label: string;
   segs: ProgramSegment[];
 }
-export async function fetchProgram(preset: "hot" | "resolving" | "close" = "resolving"): Promise<ProgramLane[] | null> {
+export async function fetchProgram(preset: "default" | "hot" | "resolving" | "close" = "default"): Promise<ProgramLane[] | null> {
   const d = await getJSON<{ enabled: boolean; lanes?: ProgramLane[] }>(`${WEB}/api/broadcast/program?preset=${preset}`);
   return d.enabled ? (d.lanes ?? []) : null;
 }
-// Lane for a schedule category ("sport" ↔ "sports", etc.).
+// Lane by clock lane key ("sports", "film", …); tolerant of the legacy singular ("sport").
 export function laneFor(lanes: ProgramLane[] | null, cat: string): ProgramLane | undefined {
   if (!lanes) return undefined;
   const c = cat.toLowerCase();
@@ -225,26 +229,30 @@ export interface Channel {
   num: number;
   name: string;
   kind: "markets" | "rank" | "guide" | "wire" | "tape";
-  cat?: string; // schedule category for kind:"markets"
+  lane?: string; // channel-clock lane key for kind:"markets" (/api/broadcast/program)
+  cat?: string; // legacy schedule category — fallback only where /api/broadcast/schedule knows it
+                // (sport · music · crypto · politics · news · culture · science; anything else = sport)
   color: string; // channel accent
 }
 
-// CH 1–7 are live market categories (channel clock lane, else schedule cat); CH 8 RANK
-// is the network operator board; CH 9 GUIDE is the all-markets heatmap; CH 0 WIRE is
-// what moved (situations); CH 10 TAPE is the federated clip reel. Tuning a dead
-// channel shows the TV-static screen — authentic dead-air.
+// The dial mirrors the lanes the denpa.ai home TV itself airs: CH 1–6 are the channel
+// clock's lanes (SPORTS · MUSIC · FILM · TV · FASHION · CRYPTO; legacy schedule as
+// fallback where it exists). CH 0 WIRE is what moved (situations); CH 7 RANK is the
+// network operator board; CH 8 GUIDE is the all-markets heatmap; CH 9 TAPE is the
+// federated clip reel. Tuning a dead channel shows the TV-static screen — authentic
+// dead-air. Politics / news / science are not on denpa.ai's clock (they are cee.news /
+// pund.it lanes) — a fork that wants them asks the hub: /api/network/program?categories=.
 export const CHANNELS: Channel[] = [
-  { num: 1, name: "SPORT", kind: "markets", cat: "sport", color: "#00ff00" },
-  { num: 2, name: "CRYPTO", kind: "markets", cat: "crypto", color: "#ffff00" },
-  { num: 3, name: "POLITICS", kind: "markets", cat: "politics", color: "#00ffff" },
-  { num: 4, name: "CULTURE", kind: "markets", cat: "culture", color: "#ff00ff" },
-  { num: 5, name: "MUSIC", kind: "markets", cat: "music", color: "#ff00ff" },
-  { num: 6, name: "NEWS", kind: "markets", cat: "news", color: "#ff0000" },
-  { num: 7, name: "SCIENCE", kind: "markets", cat: "science", color: "#0000ff" },
-  { num: 8, name: "RANK", kind: "rank", color: "#00ff00" },
-  { num: 9, name: "GUIDE", kind: "guide", color: "#00ffff" },
   { num: 0, name: "WIRE", kind: "wire", color: "#ff0000" },
-  { num: 10, name: "TAPE", kind: "tape", color: "#ff00ff" },
+  { num: 1, name: "SPORTS", kind: "markets", lane: "sports", cat: "sport", color: "#00ff00" },
+  { num: 2, name: "MUSIC", kind: "markets", lane: "music", cat: "music", color: "#ff00ff" },
+  { num: 3, name: "FILM", kind: "markets", lane: "film", color: "#00ffff" },
+  { num: 4, name: "TV", kind: "markets", lane: "tv", color: "#ffffff" },
+  { num: 5, name: "FASHION", kind: "markets", lane: "fashion", color: "#ff00ff" },
+  { num: 6, name: "CRYPTO", kind: "markets", lane: "crypto", cat: "crypto", color: "#ffff00" },
+  { num: 7, name: "RANK", kind: "rank", color: "#00ff00" },
+  { num: 8, name: "GUIDE", kind: "guide", color: "#00ffff" },
+  { num: 9, name: "TAPE", kind: "tape", color: "#ff00ff" },
 ];
 
 export const denpaLinks = {

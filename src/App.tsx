@@ -434,7 +434,7 @@ export default function App() {
       const [lb, hm, pg, st, tp, op] = await Promise.allSettled([
         fetchLeaderboard(20),
         fetchHeatmap(),
-        fetchProgram("resolving"),
+        fetchProgram("default"),
         fetchSituations(30, "24h"),
         fetchTapes(20),
         fetchNetworkOperators(),
@@ -490,9 +490,9 @@ export default function App() {
 
   // Now-playing for the tuned channel. The canonical channel clock wins when it carries this
   // lane (the content segment on air right now, else the next one); otherwise fall back to
-  // the legacy schedule: ON AIR first, else soonest to resolve.
+  // the legacy schedule where the channel has one: ON AIR first, else soonest to resolve.
   const sched = channel.cat ? schedCache[channel.cat] : undefined;
-  const lane = channel.cat ? laneFor(program, channel.cat) : undefined;
+  const lane = channel.lane ? laneFor(program, channel.lane) : undefined;
   const clockSegs = useMemo(() => {
     const t = now.getTime();
     const content = (lane?.segs ?? []).filter((s) => s.kind === "content" && new Date(s.endDate).getTime() > t);
@@ -719,7 +719,9 @@ export default function App() {
               const on = i === chIdx;
               const count =
                 c.kind === "markets"
-                  ? (c.cat ? (laneFor(program, c.cat)?.segs.length || schedCache[c.cat]?.length) : undefined)
+                  ? ((c.lane ? laneFor(program, c.lane)?.segs.length : undefined) ||
+                    (c.cat ? schedCache[c.cat]?.length : undefined) ||
+                    (loaded ? 0 : undefined))
                   : c.kind === "rank" ? (netOps.length || board.length)
                   : c.kind === "wire" ? situations.length
                   : c.kind === "tape" ? tapes.length
@@ -768,7 +770,7 @@ export default function App() {
               { c: TT.red, l: "WIRE", idx: CHANNELS.findIndex((x) => x.kind === "wire") },
               { c: TT.green, l: "RANK", idx: CHANNELS.findIndex((x) => x.kind === "rank") },
               { c: TT.yellow, l: "GUIDE", idx: CHANNELS.findIndex((x) => x.kind === "guide") },
-              { c: TT.cyan, l: "SPORT", idx: CHANNELS.findIndex((x) => x.name === "SPORT") },
+              { c: TT.cyan, l: "SPORTS", idx: CHANNELS.findIndex((x) => x.name === "SPORTS") },
             ].map((b) => (
               <button
                 key={b.l}

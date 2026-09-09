@@ -2,7 +2,7 @@
 
 Instructions for any AI (Claude Code, etc.) working in this repo. This is the
 **reference fork** of the [Denpa protocol](https://denpa.ai): a static-TV
-broadcast surface where every market category is a channel, plus WIRE
+broadcast surface where every lane of the denpa.ai channel clock is a channel, plus WIRE
 (situations), TAPE (federated clips) and RANK (network operator board).
 Created by Lukas Chmiel and Robert Inoma.
 
@@ -36,7 +36,7 @@ Created by Lukas Chmiel and Robert Inoma.
 ## Endpoints (all CORS-open, no auth for reads)
 
 ```
-GET denpa.ai/api/broadcast/program?preset=resolving         # canonical channel clock ({enabled:false} when unwired)
+GET denpa.ai/api/broadcast/program?preset=default           # the denpa.ai channel clock ({enabled:false} when unwired; hot · resolving · close too)
 GET denpa.ai/api/broadcast/schedule?cat=sport               # legacy schedule (buckets + programs) — fallback
 GET denpa.ai/api/polymarket/featured                        # home heatmap tiles
 GET denpa.ai/api/polymarket/market-history?marketId=ID&interval=1H   # YES price history (legacy /history as fallback)
@@ -55,10 +55,13 @@ own server route (not CORS-open) — reads need nothing. `/api/wire` and
 
 - **Run:** `cp .env.example .env && npm install && npm run dev` → localhost:5173
 - **Build/typecheck:** `npm run build` (runs `tsc -b` then `vite build`)
-- **Add a channel:** push to `CHANNELS` in `src/lib/denpa.ts` with a schedule
-  `cat` (`sport` / `crypto` / `politics` / `culture` / `music` / `news` /
-  `science`). Kind `"markets"` airs that category (clock lane first, schedule
-  fallback); `"rank"` is the operator board; `"guide"` is the heatmap; `"wire"`
+- **Add a channel:** push to `CHANNELS` in `src/lib/denpa.ts` with a clock
+  `lane` key (`sports` / `music` / `film` / `tv` / `fashion` / `crypto` — the
+  lanes denpa.ai airs) and, only where the legacy route knows it, a schedule
+  `cat` (`sport` / `music` / `crypto` / `politics` / `news` / `culture` /
+  `science`; any other cat silently returns sport). Kind `"markets"` airs that
+  lane (clock first, schedule fallback); `"rank"` is the operator board;
+  `"guide"` is the heatmap; `"wire"`
   is situations; `"tape"` is the clip reel. Keys 0–9 map to `num`; T tunes TAPE; SPACE/P toggles `paused`
   (holds `nowSeg` via `heldSegRef` + pauses `TapePlayer`; `tune()` clears it).
 - **Reskin:** edit the `TT` palette in `src/App.tsx` — that's the entire look.
