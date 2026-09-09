@@ -29,6 +29,9 @@ Tune with the on-screen zapper, the **0–9** number keys, **T** for the tape, o
 
 **Created by Lukas Chmiel and Robert Inoma.**
 
+**Live:** https://bananaemojiii.github.io/denpa-fork-zero/ — GitHub Pages, built
+from `main` on every push (`.github/workflows/pages.yml`).
+
 ## What denpa.ai is today (September 2026)
 
 - **The home page is a TV.** Denpa TV rotates through the markets on air, and
@@ -176,6 +179,8 @@ first; Safari falls back to native HLS).
 
 ## Changelog
 
+- **0.2.3 (2026-09-09)** — hosted: GitHub Pages workflow builds `main` to
+  bananaemojiii.github.io/denpa-fork-zero (Vite `base` from `BASE_PATH`).
 - **0.2.2 (2026-09-09)** — RANK opens field records: selecting an operator pulls
   their public field record from the hub (`/api/network/field-record`) — rank,
   score, accuracy, W–L, open calls, streak, average CLV, recent calls with
