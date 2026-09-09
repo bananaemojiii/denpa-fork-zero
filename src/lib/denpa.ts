@@ -302,21 +302,40 @@ function familyKey(title: string): string {
   return t.split(" ").slice(-6).join(" ");
 }
 
-// Short dial name derived from a question, for auto-filled slots.
+// Short dial name derived from a question, for auto-filled slots. Takes whole words
+// only — a channel called "JESUS CHRIS" reads like a rendering bug.
+const AUTONAME_MAX = 12;
 function autoName(title: string): string {
   const words = title
     .replace(/^will\s+(the\s+)?/i, "")
     .replace(/[^A-Za-z0-9 ]/g, " ")
     .split(/\s+/)
     .filter((w) => w.length > 2);
-  return (words.slice(0, 2).join(" ") || "MARKET").toUpperCase().slice(0, 11);
+  let name = "";
+  for (const w of words) {
+    const next = name ? `${name} ${w}` : w;
+    if (next.length > AUTONAME_MAX) break;
+    name = next;
+  }
+  // No word fits (one very long word) — hard-truncate that single word instead.
+  return (name || words[0]?.slice(0, AUTONAME_MAX) || "MARKET").toUpperCase();
+}
+
+// A pin is airable only if it is open AND still has runway. `status` alone is not
+// enough: the hub reports status "open" for a market whose endDate passed months ago
+// (Polymarket leaves it un-closed), which would pin dead air to the dial forever.
+export function isAirable(m: DenpaMarket | null): boolean {
+  if (!m || m.status !== "open") return false;
+  if (!m.endDate) return false;
+  const ends = new Date(m.endDate).getTime();
+  return Number.isFinite(ends) && ends > Date.now();
 }
 
 export async function fetchMarquee(): Promise<MarqueeMarket[]> {
   const resolved = await Promise.all(
     MARQUEE_PINS.map(async (pin) => {
       const m = await fetchMarket(pin.id);
-      return m && m.status === "open" ? { ...m, name: pin.name, color: pin.color } : null;
+      return isAirable(m) ? { ...m!, name: pin.name, color: pin.color } : null;
     }),
   );
   const live = resolved.filter((m): m is MarqueeMarket => m !== null).slice(0, MARQUEE_SLOTS);

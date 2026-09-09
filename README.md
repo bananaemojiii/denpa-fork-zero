@@ -103,6 +103,11 @@ Auto-fill only runs when fewer than six pins survive: open markets with at least
 90 days of runway, biggest first, collapsed one-per-question-family so a
 128-bucket event like the 2028 nomination cannot swallow the whole dial.
 
+A pin survives only while it is open **and** its end date is still ahead.
+`status` alone is not enough — the hub reports `"open"` for markets whose end
+date passed months ago, because Polymarket leaves them un-closed, and a dead pin
+would otherwise sit on the dial forever showing `RESOLVING`.
+
 A slot with no market shows the animated **NO SIGNAL** screen. Every feed
 refreshes independently — 30s for the boards, 60s for the band.
 

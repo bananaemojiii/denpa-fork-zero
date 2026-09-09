@@ -64,7 +64,9 @@ own server route (not CORS-open) — reads need nothing. `/api/wire` and
 - **Build/typecheck:** `npm run build` (runs `tsc -b` then `vite build`)
 - **Programme the dial:** edit `MARQUEE_PINS` in `src/lib/denpa.ts` — `{id, name,
   color}`, priority order, entries past `MARQUEE_SLOTS` are reserves promoted as
-  leaders resolve. `fetchMarquee` keeps only `status === "open"` pins and tops up
+  leaders resolve. `fetchMarquee` keeps only pins passing `isAirable` (open AND
+  endDate in the future — `status` alone is not enough, the hub reports "open"
+  for markets whose end date passed months ago) and tops up
   from `/api/polymarket/markets` (open, ≥90d runway, biggest first, one per
   question family). Slot kinds: `"marquee"` (a market, indexed by `slot`),
   `"rank"` (operator board + field record), `"guide"` (channel clock + heatmap),
