@@ -58,7 +58,7 @@ export async function fetchHeatmap(): Promise<HeatmapTile[]> {
   return d.tiles ?? [];
 }
 
-/* ───────────── Broadcast schedule / Gantt (denpa.ai) ───────────── */
+/* ───────────── Broadcast segment — the shape the channel clock airs ───────────── */
 export type Bucket = "ON AIR" | "TODAY" | "TOMORROW" | "THIS WEEK" | "THIS MONTH" | "LATER";
 
 export interface BroadcastSegment {
@@ -76,15 +76,6 @@ export interface BroadcastSegment {
   eventKey: string;
 }
 
-// cat: "sport" | "music" | "crypto" | "politics" | "news" | "culture" | "science"
-export async function fetchSchedule(cat = "sport"): Promise<BroadcastSegment[]> {
-  const d = await getJSON<{ buckets: Partial<Record<Bucket, BroadcastSegment[]>> }>(
-    `${WEB}/api/broadcast/schedule?cat=${cat}`,
-  );
-  const flat = Object.values(d.buckets ?? {}).flat() as BroadcastSegment[];
-  return flat.filter((s) => s.endsInMs > 0).sort((a, b) => a.endsInMs - b.endsInMs);
-}
-
 /* ───────────── Price history / chart (denpa.ai) ───────────── */
 export interface PricePoint {
   ts: number; // unix ms
@@ -93,11 +84,15 @@ export interface PricePoint {
 
 // 60 min of 1-minute YES-price history for the chart. Empty array on any failure
 // (market without a yes token, history unavailable) — the chart just renders flat.
-export async function fetchHistory(marketId: string): Promise<PricePoint[]> {
+// interval: "1H" · "24H" (default) · "7D" · "ALL". ALL is the market's whole arc —
+// what a marquee channel airs, since a question with months of runway has a timeline,
+// not a wiggle. The route maps these onto CLOB prices-history ranges.
+export type HistoryInterval = "1H" | "24H" | "7D" | "ALL";
+export async function fetchHistory(marketId: string, interval: HistoryInterval = "24H"): Promise<PricePoint[]> {
   const id = encodeURIComponent(marketId);
   try {
     // Documented endpoint: {history:[{t,p}]} — t in ms or s, p as 0–1 or 0–100 depending on version. Normalise both.
-    const d = await getJSON<{ history: { t: number; p: number }[] }>(`${WEB}/api/polymarket/market-history?marketId=${id}&interval=1H`);
+    const d = await getJSON<{ history: { t: number; p: number }[] }>(`${WEB}/api/polymarket/market-history?marketId=${id}&interval=${interval}`);
     const h = d.history ?? [];
     if (h.length) {
       const pct = h.some((x) => x.p > 1) ? 1 : 100;
@@ -138,13 +133,6 @@ export async function fetchProgram(preset: "default" | "hot" | "resolving" | "cl
   const d = await getJSON<{ enabled: boolean; lanes?: ProgramLane[] }>(`${WEB}/api/broadcast/program?preset=${preset}`);
   return d.enabled ? (d.lanes ?? []) : null;
 }
-// Lane by clock lane key ("sports", "film", …); tolerant of the legacy singular ("sport").
-export function laneFor(lanes: ProgramLane[] | null, cat: string): ProgramLane | undefined {
-  if (!lanes) return undefined;
-  const c = cat.toLowerCase();
-  return lanes.find((l) => l.key === c || l.key === `${c}s` || l.label.toLowerCase() === c || l.label.toLowerCase() === `${c}s`);
-}
-
 /* ───────────── Situations — stories of belief movement (denpa.ai /api/situations) ─────────────
    One situation = every moving market in one provider event, collapsed into a single story.
    Read peakDelta (the biggest mover); never sum a situation's deltas. */
@@ -261,32 +249,161 @@ export async function fetchFieldRecord(handle: string): Promise<FieldRecord | nu
   }
 }
 
-/* ───────────── Channels — the dial is the clock ───────────── */
-export interface Channel {
-  num: number;
-  name: string;
-  kind: "markets" | "rank" | "guide" | "wire" | "tape";
-  lane?: string; // channel-clock lane key for kind:"markets" (/api/broadcast/program)
-  cat?: string; // legacy schedule category — fallback only where /api/broadcast/schedule knows it
-                // (sport · music · crypto · politics · news · culture · science; anything else = sport)
-  color: string; // channel accent
+/* ───────────── One market, normalized — the hub's canonical market shape ─────────────
+   GET /api/network/market/:id resolves ANY protocol id (numeric = Polymarket,
+   `kalshi-…`, `lmt-…`) to one shape, so a marquee channel is venue-agnostic:
+   {market:{id,provider,title,yesPrice,noPrice,volume,status,outcome,endDate,url}}. */
+export interface DenpaMarket {
+  id: string;
+  provider: string;
+  title: string;
+  yesPrice: number | null; // 0–1
+  noPrice: number | null;
+  volume: number | null;
+  status: "open" | "closed" | "resolved" | "unknown" | string;
+  outcome: string | null;
+  endDate: string | null;
+  url: string;
+  updatedAt: string;
+}
+export async function fetchMarket(id: string): Promise<DenpaMarket | null> {
+  try {
+    const d = await getJSON<{ market: DenpaMarket }>(`${WEB}/api/network/market/${encodeURIComponent(id)}`);
+    return d.market ?? null;
+  } catch {
+    return null;
+  }
 }
 
-// The dial mirrors the lanes the denpa.ai home TV itself airs: CH 1–6 are the channel
-// clock's lanes (SPORTS · MUSIC · FILM · TV · FASHION · CRYPTO; legacy schedule as
-// fallback where it exists). CH 0 WIRE is what moved (situations); CH 7 RANK is the
-// network operator board; CH 8 GUIDE is the all-markets heatmap; CH 9 TAPE is the
-// federated clip reel. Tuning a dead channel shows the TV-static screen — authentic
-// dead-air. Politics / news / science are not on denpa.ai's clock (they are cee.news /
-// pund.it lanes) — a fork that wants them asks the hub: /api/network/program?categories=.
+/* ───────────── The marquee band — a long-running market IS the channel ─────────────
+   Not a category: one question with months of runway, aired as its own channel, so the
+   price arc is the programme. Pins are marquee questions in priority order; a pin that
+   resolves or closes drops off the dial by itself and the band is topped up from the
+   protocol's own market list — open, ≥90 days of runway, biggest first, one per
+   question family so a 128-bucket event can't swallow the dial. */
+export interface MarqueePin {
+  id: string;
+  name: string; // channel name on the dial
+  color: string;
+}
+export const MARQUEE_PINS: MarqueePin[] = [
+  { id: "668591", name: "GTA VI", color: "#ffff00" },
+  { id: "665374", name: "IRAN", color: "#ff0000" },
+  { id: "567621", name: "TAIWAN", color: "#00ffff" },
+  { id: "703257", name: "CONTACT", color: "#00ff00" },
+  { id: "561230", name: "2028", color: "#ffffff" },
+  { id: "1163699", name: "CLARITY", color: "#ff00ff" },
+  // Reserves — promoted onto the dial as the pins above resolve.
+  { id: "663583", name: "TEHRAN", color: "#ff0000" },
+  { id: "560317", name: "KREMLIN", color: "#ffffff" },
+  { id: "559651", name: "BEIJING", color: "#00ffff" },
+  { id: "1363069", name: "GTA PRICE", color: "#ffff00" },
+];
+
+export interface MarqueeMarket extends DenpaMarket {
+  name: string;
+  color: string;
+}
+
+// One row of /api/polymarket/markets — the auto-fill pool.
+interface ListedMarket {
+  id: string;
+  name: string;
+  yesPct: number; // 0–100
+  volume: number;
+  closed: boolean;
+  closesAt: string;
+}
+
+export const MARQUEE_SLOTS = 6;
+const AUTOFILL_MIN_DAYS = 90;
+const AUTOFILL_COLORS = ["#00ff00", "#ffff00", "#00ffff", "#ff00ff", "#ffffff", "#ff0000"];
+
+// Question-family key: "Will Mike Pence win the 2028 Republican presidential nomination?"
+// and its 127 siblings collapse to one key, so one event can't take every slot.
+function familyKey(title: string): string {
+  const t = title.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim().replace(/^will (the )?/, "");
+  return t.split(" ").slice(-6).join(" ");
+}
+
+// Short dial name derived from a question, for auto-filled slots.
+function autoName(title: string): string {
+  const words = title
+    .replace(/^will\s+(the\s+)?/i, "")
+    .replace(/[^A-Za-z0-9 ]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2);
+  return (words.slice(0, 2).join(" ") || "MARKET").toUpperCase().slice(0, 11);
+}
+
+export async function fetchMarquee(): Promise<MarqueeMarket[]> {
+  const resolved = await Promise.all(
+    MARQUEE_PINS.map(async (pin) => {
+      const m = await fetchMarket(pin.id);
+      return m && m.status === "open" ? { ...m, name: pin.name, color: pin.color } : null;
+    }),
+  );
+  const live = resolved.filter((m): m is MarqueeMarket => m !== null).slice(0, MARQUEE_SLOTS);
+  if (live.length >= MARQUEE_SLOTS) return live;
+
+  // Not enough pins survived — top up from the protocol's own market list.
+  try {
+    const d = await getJSON<{ markets: ListedMarket[] }>(`${WEB}/api/polymarket/markets`);
+    const seen = new Set(live.map((m) => familyKey(m.title)));
+    const cutoff = Date.now() + AUTOFILL_MIN_DAYS * 86_400_000;
+    const extra = (d.markets ?? [])
+      .filter((m) => !m.closed && new Date(m.closesAt).getTime() > cutoff)
+      .sort((a, b) => b.volume - a.volume)
+      .filter((m) => {
+        const k = familyKey(m.name);
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .slice(0, MARQUEE_SLOTS - live.length)
+      .map((m, i): MarqueeMarket => ({
+        id: m.id,
+        provider: "polymarket",
+        title: m.name,
+        yesPrice: m.yesPct / 100,
+        noPrice: 1 - m.yesPct / 100,
+        volume: m.volume,
+        status: "open",
+        outcome: null,
+        endDate: m.closesAt,
+        url: `${WEB}/m/${m.id}`,
+        updatedAt: new Date().toISOString(),
+        name: autoName(m.name),
+        color: AUTOFILL_COLORS[(live.length + i) % AUTOFILL_COLORS.length],
+      }));
+    return [...live, ...extra];
+  } catch {
+    return live;
+  }
+}
+
+/* ───────────── Channels — the dial ─────────────
+   CH 1–6 are the marquee band: one long-running market each, in the order
+   fetchMarquee returns them (name + accent come from the market on the slot).
+   CH 0 WIRE is what moved (situations); CH 7 RANK is the network operator board;
+   CH 8 GUIDE is the channel clock — what the protocol is airing next, across every
+   lane; CH 9 TAPE is the federated clip reel. A slot with no market shows TV static. */
+export interface Channel {
+  num: number;
+  name: string; // placeholder for marquee slots — the market on the slot names the channel
+  kind: "marquee" | "rank" | "guide" | "wire" | "tape";
+  slot?: number; // index into the marquee band for kind:"marquee"
+  color: string;
+}
+
 export const CHANNELS: Channel[] = [
   { num: 0, name: "WIRE", kind: "wire", color: "#ff0000" },
-  { num: 1, name: "SPORTS", kind: "markets", lane: "sports", cat: "sport", color: "#00ff00" },
-  { num: 2, name: "MUSIC", kind: "markets", lane: "music", cat: "music", color: "#ff00ff" },
-  { num: 3, name: "FILM", kind: "markets", lane: "film", color: "#00ffff" },
-  { num: 4, name: "TV", kind: "markets", lane: "tv", color: "#ffffff" },
-  { num: 5, name: "FASHION", kind: "markets", lane: "fashion", color: "#ff00ff" },
-  { num: 6, name: "CRYPTO", kind: "markets", lane: "crypto", cat: "crypto", color: "#ffff00" },
+  { num: 1, name: "CH 01", kind: "marquee", slot: 0, color: "#ffff00" },
+  { num: 2, name: "CH 02", kind: "marquee", slot: 1, color: "#ff0000" },
+  { num: 3, name: "CH 03", kind: "marquee", slot: 2, color: "#00ffff" },
+  { num: 4, name: "CH 04", kind: "marquee", slot: 3, color: "#00ff00" },
+  { num: 5, name: "CH 05", kind: "marquee", slot: 4, color: "#ffffff" },
+  { num: 6, name: "CH 06", kind: "marquee", slot: 5, color: "#ff00ff" },
   { num: 7, name: "RANK", kind: "rank", color: "#00ff00" },
   { num: 8, name: "GUIDE", kind: "guide", color: "#00ffff" },
   { num: 9, name: "TAPE", kind: "tape", color: "#ff00ff" },

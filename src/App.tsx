@@ -3,20 +3,18 @@ import type Hls from "hls.js";
 import {
   fetchLeaderboard,
   fetchHeatmap,
-  fetchSchedule,
   fetchHistory,
+  fetchMarquee,
   fetchProgram,
   fetchSituations,
   fetchTapes,
   fetchNetworkOperators,
-  laneFor,
   marketRoute,
   denpaLinks,
   CHANNELS,
-  type Channel,
+  type MarqueeMarket,
   type OperatorRank,
   type HeatmapTile,
-  type BroadcastSegment,
   type ProgramLane,
   type ProgramSegment,
   type PricePoint,
@@ -66,6 +64,22 @@ function fmtCountdown(ms: number): string {
   const sec = s % 60;
   if (d > 0) return `${d}D ${pad(h)}:${pad(m)}:${pad(sec)}`;
   return `${pad(h)}:${pad(m)}:${pad(sec)}`;
+}
+
+// "09 SEP" — a date on the timeline axis.
+function fmtDay(ms: number): string {
+  const d = new Date(ms);
+  return `${pad(d.getDate())} ${MON[d.getMonth()]}`;
+}
+
+// "71D LEFT" — runway to resolution, the unit a marquee channel is measured in.
+function fmtDays(iso: string | null): string {
+  if (!iso) return "—";
+  const ms = new Date(iso).getTime() - Date.now();
+  if (Number.isNaN(ms)) return "—";
+  if (ms <= 0) return "RESOLVING";
+  const d = Math.floor(ms / 86_400_000);
+  return d >= 1 ? `${d}D LEFT` : `${Math.floor(ms / 3_600_000)}H LEFT`;
 }
 
 /* ───────────── Dead-channel TV static ───────────── */
@@ -129,31 +143,44 @@ function TvStatic({ caption }: { caption: string }) {
 }
 
 /* ───────────── Live price chart (SVG sparkline of YES history) ───────────── */
-function Sparkline({ points, color }: { points: PricePoint[]; color: string }) {
+function Sparkline({ points, color, fit = false, height = 56 }: { points: PricePoint[]; color: string; fit?: boolean; height?: number }) {
   const W = 100;
   const H = 30;
+  // fit: scale the y-axis to the band the market actually traded in (plus 12% headroom),
+  // so a question that lives between 5% and 12% still draws a readable arc.
+  const scale = useMemo(() => {
+    if (points.length < 2) return null;
+    const ps = points.map((p) => p.p);
+    const lo = Math.min(...ps);
+    const hi = Math.max(...ps);
+    if (!fit) return { lo: 0, hi: 100 };
+    const padding = Math.max((hi - lo) * 0.12, 0.5);
+    return { lo: Math.max(0, lo - padding), hi: Math.min(100, hi + padding) };
+  }, [points, fit]);
+
   const path = useMemo(() => {
-    if (points.length < 2) return "";
+    if (!scale || points.length < 2) return "";
     const xs = points.map((p) => p.ts);
     const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const spanX = maxX - minX || 1;
+    const spanX = (Math.max(...xs) - minX) || 1;
+    const spanY = (scale.hi - scale.lo) || 1;
     return points
       .map((p, i) => {
         const x = ((p.ts - minX) / spanX) * W;
-        const y = H - (Math.max(0, Math.min(100, p.p)) / 100) * H;
+        const y = H - ((Math.max(scale.lo, Math.min(scale.hi, p.p)) - scale.lo) / spanY) * H;
         return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
       })
       .join(" ");
-  }, [points]);
+  }, [points, scale]);
 
-  if (!path) {
+  if (!path || !scale) {
     return <div style={{ color: TT.grey, fontSize: "0.62rem", letterSpacing: "0.1em" }}>CHART · NO HISTORY</div>;
   }
+  // Guide line at 50% when it is on screen, else through the middle of the fitted band.
+  const midY = scale.lo <= 50 && 50 <= scale.hi ? H - ((50 - scale.lo) / (scale.hi - scale.lo)) * H : H / 2;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "100%", height: 56, display: "block" }}>
-      {/* 50% mid line */}
-      <line x1="0" y1={H / 2} x2={W} y2={H / 2} stroke="#222" strokeWidth="0.5" />
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "100%", height, display: "block" }}>
+      <line x1="0" y1={midY} x2={W} y2={midY} stroke="#222" strokeWidth="0.5" />
       <polyline points={path.replace(/[ML]/g, " ").trim()} fill="none" stroke={color} strokeWidth="1" vectorEffect="non-scaling-stroke" />
     </svg>
   );
@@ -181,42 +208,45 @@ function SectionHead({ page, title, color }: { page: string; title: string; colo
 const row: React.CSSProperties = { display: "flex", gap: "0.7rem", alignItems: "baseline", padding: "0.2rem 0" };
 const cell: React.CSSProperties = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
 
-/* ───────────── Now-playing TV screen (a market on a channel) ───────────── */
-function NowPlaying({
-  seg,
-  channel,
-  history,
-  remainMs,
-  onClock,
-}: {
-  seg: BroadcastSegment;
-  channel: Channel;
-  history: PricePoint[];
-  remainMs: number;
-  onClock: boolean; // true when the segment comes from the canonical channel clock
-}) {
-  const yes = Math.round(seg.yesPrice);
-  const no = 100 - yes;
-  // 60-minute YES move from the fetched history (first → last point).
-  const delta = history.length >= 2 ? history[history.length - 1].p - history[0].p : null;
+/* ───────────── The marquee screen — one long-running market, aired as a channel ─────────────
+   The programme is the arc: the whole price history, the range it has travelled, and how
+   long it still has to run. Not a 60-minute wiggle. */
+function MarqueeScreen({ market, history, remainMs }: { market: MarqueeMarket; history: PricePoint[]; remainMs: number }) {
+  const yes = Math.round((market.yesPrice ?? 0) * 100);
+  const no = Math.round((market.noPrice ?? 1 - (market.yesPrice ?? 0)) * 100);
+  // The arc: where it opened in the window, where it has been, where it is now.
+  const arc = useMemo(() => {
+    if (history.length < 2) return null;
+    const ps = history.map((h) => h.p);
+    return {
+      open: history[0].p,
+      last: history[history.length - 1].p,
+      lo: Math.min(...ps),
+      hi: Math.max(...ps),
+      from: history[0].ts,
+      to: history[history.length - 1].ts,
+    };
+  }, [history]);
+  const change = arc ? arc.last - arc.open : null;
+
   return (
     <div style={{ background: "#070707", padding: "1rem 1.1rem 1.1rem" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "0.3rem" }}>
         <span style={{ color: TT.red, fontWeight: 900, letterSpacing: "0.14em", animation: "fz-blink 1s steps(1) infinite" }}>
           ● ON AIR
         </span>
         <span style={{ color: TT.grey, fontSize: "0.66rem", letterSpacing: "0.12em" }}>
-          {onClock ? "CHANNEL CLOCK · NEXT IN" : "RESOLVES IN"} {fmtCountdown(remainMs)}
+          RESOLVES IN {fmtCountdown(remainMs)}
         </span>
       </div>
 
       <a
-        href={denpaLinks.market(`/m/${seg.id}`)}
+        href={denpaLinks.market(`/m/${market.id}`)}
         target="_blank"
         rel="noreferrer"
         style={{ color: TT.white, fontWeight: 900, fontSize: "1.15rem", lineHeight: 1.25, display: "block", margin: "0.55rem 0 0.75rem", textDecoration: "none" }}
       >
-        {seg.title}
+        {market.title}
       </a>
 
       {/* YES / NO split bars — green YES, cyan NO */}
@@ -241,27 +271,37 @@ function NowPlaying({
         </div>
       </div>
 
-      {/* 60-min YES price chart */}
+      {/* The arc — the market's whole recorded history */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", color: TT.grey, fontSize: "0.62rem", letterSpacing: "0.1em" }}>
-        <span>60M CHART · YES</span>
-        {delta !== null && (
-          <span style={{ color: delta >= 0 ? TT.green : TT.red, fontWeight: 900 }}>
-            {delta >= 0 ? "▲" : "▼"} {delta >= 0 ? "+" : ""}{delta.toFixed(1)} / 60M
+        <span>TIMELINE · YES{arc ? ` · ${fmtDay(arc.from)} → ${fmtDay(arc.to)}` : ""}</span>
+        {change !== null && (
+          <span style={{ color: change >= 0 ? TT.green : TT.red, fontWeight: 900 }}>
+            {change >= 0 ? "▲" : "▼"} {change >= 0 ? "+" : ""}{change.toFixed(1)} PTS
           </span>
         )}
       </div>
-      <Sparkline points={history} color={channel.color} />
+      <Sparkline points={history} color={market.color} fit height={110} />
 
-      <div style={{ display: "flex", justifyContent: "space-between", color: TT.grey, fontSize: "0.64rem", letterSpacing: "0.08em", marginTop: "0.35rem" }}>
-        <span>VOL ${Math.round((seg.volume || 0) / 1000)}K</span>
-        <span>{seg.signals ?? 0} SIGNALS · {seg.tapes ?? 0} TAPES</span>
-        <span>{seg.status?.toUpperCase()}</span>
+      {arc && (
+        <div style={{ display: "flex", justifyContent: "space-between", color: TT.grey, fontSize: "0.62rem", letterSpacing: "0.08em", marginTop: "0.3rem" }}>
+          <span style={{ color: "#555" }}>SCALED TO RANGE</span>
+          <span>OPEN {arc.open.toFixed(1)}%</span>
+          <span>LOW {arc.lo.toFixed(1)}%</span>
+          <span>HIGH {arc.hi.toFixed(1)}%</span>
+          <span style={{ color: TT.white, fontWeight: 900 }}>NOW {arc.last.toFixed(1)}%</span>
+        </div>
+      )}
+
+      <div style={{ display: "flex", justifyContent: "space-between", color: TT.grey, fontSize: "0.64rem", letterSpacing: "0.08em", marginTop: "0.5rem", flexWrap: "wrap", gap: "0.3rem" }}>
+        <span>VOL ${Math.round((market.volume ?? 0) / 1000)}K</span>
+        <span>{market.provider.toUpperCase()}</span>
+        <span>{fmtDays(market.endDate)}</span>
       </div>
 
       {/* SIGNAL actions — resolve to the denpa.ai market page (money-free forecast) */}
       <div style={{ display: "flex", gap: 0, marginTop: "0.8rem" }}>
         <a
-          href={denpaLinks.market(`/m/${seg.id}`)}
+          href={denpaLinks.market(`/m/${market.id}`)}
           target="_blank"
           rel="noreferrer"
           style={{ flex: 1, textAlign: "center", background: TT.green, color: "#000", fontWeight: 900, fontSize: "0.78rem", letterSpacing: "0.12em", padding: "0.55rem 0", textDecoration: "none" }}
@@ -269,7 +309,7 @@ function NowPlaying({
           ▸ SIGNAL YES
         </a>
         <a
-          href={denpaLinks.market(`/m/${seg.id}`)}
+          href={denpaLinks.market(`/m/${market.id}`)}
           target="_blank"
           rel="noreferrer"
           style={{ flex: 1, textAlign: "center", background: TT.cyan, color: "#000", fontWeight: 900, fontSize: "0.78rem", letterSpacing: "0.12em", padding: "0.55rem 0", textDecoration: "none" }}
@@ -464,8 +504,8 @@ export default function App() {
   const [paused, setPaused] = useState(false);
   const channel = CHANNELS[chIdx];
 
-  // Per-channel schedule cache (cat → segments) + global feeds.
-  const [schedCache, setSchedCache] = useState<Record<string, BroadcastSegment[]>>({});
+  // The marquee band (CH 1–6) + global feeds.
+  const [marquee, setMarquee] = useState<MarqueeMarket[]>([]);
   const [board, setBoard] = useState<OperatorRank[]>([]);
   const [netOps, setNetOps] = useState<NetOperator[]>([]);
   // RANK: the selected operator + their hub field record (undefined = pulling, null = none).
@@ -549,24 +589,16 @@ export default function App() {
     };
   }, []);
 
-  // All market channels' schedules, fetched together — so the zapper can show
-  // which channels are live and tuning is instant. Initial + 30s refresh.
+  // The marquee band — the long-running markets on CH 1–6. Pins that have resolved
+  // drop off and the band tops itself up, so the dial stays live without a redeploy.
   useEffect(() => {
-    const cats = CHANNELS.filter((c) => c.kind === "markets" && c.cat).map((c) => c.cat!);
     let live = true;
     const load = async () => {
-      const results = await Promise.allSettled(cats.map((cat) => fetchSchedule(cat)));
-      if (!live) return;
-      setSchedCache((prev) => {
-        const next = { ...prev };
-        results.forEach((r, i) => {
-          next[cats[i]] = r.status === "fulfilled" ? r.value : (next[cats[i]] ?? []);
-        });
-        return next;
-      });
+      const band = await fetchMarquee();
+      if (live && band.length) setMarquee(band);
     };
     void load();
-    const id = setInterval(() => void load(), 30_000);
+    const id = setInterval(() => void load(), 60_000);
     return () => {
       live = false;
       clearInterval(id);
@@ -586,59 +618,48 @@ export default function App() {
     };
   }, [recOp]);
 
-  // Now-playing for the tuned channel. The canonical channel clock wins when it carries this
-  // lane (the content segment on air right now, else the next one); otherwise fall back to
-  // the legacy schedule where the channel has one: ON AIR first, else soonest to resolve.
-  const sched = channel.cat ? schedCache[channel.cat] : undefined;
-  const lane = channel.lane ? laneFor(program, channel.lane) : undefined;
-  const clockSegs = useMemo(() => {
-    const t = now.getTime();
-    const content = (lane?.segs ?? []).filter((s) => s.kind === "content" && new Date(s.endDate).getTime() > t);
-    return content.sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
-  }, [lane, now]);
-  const onClock = clockSegs.length > 0;
-  // Paused: hold the segment on air (same rule as @denpa/sdk onAirSegment —
-  // hold the pick, never stop the clock, so resume re-syncs to the rundown).
-  const heldSegRef = useRef<BroadcastSegment | ProgramSegment | null>(null);
-  const nowSeg: BroadcastSegment | ProgramSegment | null = useMemo(() => {
-    if (paused && heldSegRef.current) return heldSegRef.current;
-    if (onClock) return clockSegs[0];
-    if (!sched || sched.length === 0) return null;
-    return sched.find((s) => s.bucket === "ON AIR") ?? sched[0];
-  }, [paused, onClock, clockSegs, sched]);
-  heldSegRef.current = nowSeg;
-  const guide = useMemo<(BroadcastSegment | ProgramSegment)[]>(() => {
-    if (onClock) {
-      const seen = new Set<string>([clockSegs[0].id]);
-      return clockSegs.slice(1).filter((s) => (seen.has(s.id) ? false : (seen.add(s.id), true))).slice(0, 12);
-    }
-    return (sched ?? []).filter((s) => s.id !== nowSeg?.id).slice(0, 12);
-  }, [onClock, clockSegs, sched, nowSeg]);
+  // The market on the tuned slot. Paused holds the pick (same rule as the rest of the
+  // protocol — hold the pick, never stop the clock), so PLAY re-syncs to the band.
+  const heldRef = useRef<MarqueeMarket | null>(null);
+  const slotMarket: MarqueeMarket | null = useMemo(() => {
+    if (channel.kind !== "marquee") return null;
+    if (paused && heldRef.current) return heldRef.current;
+    return marquee[channel.slot ?? 0] ?? null;
+  }, [channel, marquee, paused]);
+  if (channel.kind === "marquee") heldRef.current = slotMarket;
 
-  // Price history follows the now-playing market.
+  // The channel clock, flattened — what the protocol airs next across every lane. CH 8.
+  const clockNext = useMemo<ProgramSegment[]>(() => {
+    const t = now.getTime();
+    return (program ?? [])
+      .flatMap((l) => l.segs.map((sg) => ({ ...sg, category: sg.category || l.label })))
+      .filter((sg) => sg.kind === "content" && new Date(sg.endDate).getTime() > t)
+      .sort((x, y) => new Date(x.startsAt).getTime() - new Date(y.startsAt).getTime())
+      .filter((sg, i, arr) => arr.findIndex((o) => o.id === sg.id) === i)
+      .slice(0, 14);
+  }, [program, now]);
+
+  // Price history follows the tuned market — interval ALL, because a marquee
+  // question has months of runway: the arc is the programme, not a 60-minute wiggle.
   useEffect(() => {
-    if (!nowSeg) {
+    if (!slotMarket) {
       setHistory([]);
       histFor.current = null;
       return;
     }
-    if (histFor.current === nowSeg.id) return;
-    histFor.current = nowSeg.id;
+    if (histFor.current === slotMarket.id) return;
+    histFor.current = slotMarket.id;
     let live = true;
-    void fetchHistory(nowSeg.id).then((pts) => {
+    void fetchHistory(slotMarket.id, "ALL").then((pts) => {
       if (live) setHistory(pts);
     });
     return () => {
       live = false;
     };
-  }, [nowSeg]);
+  }, [slotMarket]);
 
-  // Live countdown for the now-playing market (endsInMs captured at fetch, decay to clock).
-  const fetchedAt = useRef(Date.now());
-  useEffect(() => {
-    fetchedAt.current = Date.now();
-  }, [sched]);
-  const remainMs = !nowSeg ? 0 : onClock ? new Date(nowSeg.endDate).getTime() - now.getTime() : nowSeg.endsInMs - (now.getTime() - fetchedAt.current);
+  // Time left until the tuned market resolves.
+  const remainMs = slotMarket?.endDate ? new Date(slotMarket.endDate).getTime() - now.getTime() : 0;
 
   return (
     <div style={{ position: "relative", minHeight: "100vh", background: TT.bg }}>
@@ -684,8 +705,8 @@ export default function App() {
           {/* Masthead + tuned-channel readout */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "0.2rem 0.8rem", margin: "0.7rem 0 0.15rem" }}>
             <div style={{ color: TT.yellow, fontWeight: 900, fontSize: "2rem", letterSpacing: "0.04em" }}>DENPA</div>
-            <div style={{ color: channel.color, fontWeight: 900, fontSize: "1.1rem", letterSpacing: "0.12em" }}>
-              CH {pad(channel.num)} ▸ {channel.name}
+            <div style={{ color: slotMarket?.color ?? channel.color, fontWeight: 900, fontSize: "1.1rem", letterSpacing: "0.12em" }}>
+              CH {pad(channel.num)} ▸ {slotMarket?.name ?? channel.name}
             </div>
           </div>
           <div style={{ color: TT.grey, fontSize: "0.7rem", letterSpacing: "0.18em", borderBottom: `2px solid ${TT.magenta}`, paddingBottom: "0.6rem" }}>
@@ -697,32 +718,38 @@ export default function App() {
             <div style={{ marginTop: "1rem" }}>
               <TvStatic caption="TUNING — RESOLVING DENPA SIGNAL…" />
             </div>
-          ) : channel.kind === "markets" ? (
-            sched === undefined ? (
+          ) : channel.kind === "marquee" ? (
+            marquee.length === 0 ? (
               <div style={{ marginTop: "1rem" }}>
-                <TvStatic caption={`TUNING CH ${pad(channel.num)} ${channel.name}…`} />
+                <TvStatic caption="TUNING THE MARQUEE BAND…" />
               </div>
-            ) : nowSeg ? (
+            ) : slotMarket ? (
               <div style={{ marginTop: "1rem" }}>
-                <NowPlaying seg={nowSeg} channel={channel} history={history} remainMs={remainMs} onClock={onClock} />
-                {/* EPG guide for this channel */}
-                {guide.length > 0 && (
-                  <>
-                    <SectionHead page={`P${100 + channel.num}.G`} title={onClock ? "CHANNEL CLOCK — UP NEXT" : "GUIDE — UP NEXT"} color={channel.color} />
-                    {guide.map((s) => (
-                      <a key={"segmentId" in s ? s.segmentId : s.id} href={denpaLinks.market(`/m/${s.id}`)} target="_blank" rel="noreferrer" style={{ ...row, textDecoration: "none" }}>
-                        <span style={{ color: TT.cyan, width: "3.4rem", flexShrink: 0 }}>{hhmm("startsAt" in s ? s.startsAt : s.endDate)}</span>
-                        <span style={{ ...cell, color: TT.white, flex: 1 }}>{s.title}</span>
-                        <span style={{ color: TT.grey, width: "5rem", flexShrink: 0, fontSize: "0.64rem", ...cell }}>{s.bucket}</span>
-                        <span style={{ color: TT.yellow, width: "3rem", textAlign: "right", flexShrink: 0, fontWeight: 900 }}>{Math.round(s.yesPrice)}%</span>
-                      </a>
-                    ))}
-                  </>
-                )}
+                <MarqueeScreen market={slotMarket} history={history} remainMs={remainMs} />
+                <SectionHead page={`P${100 + channel.num}.D`} title="ALSO ON THE DIAL" color={slotMarket.color} />
+                {marquee
+                  .filter((m) => m.id !== slotMarket.id)
+                  .map((m) => {
+                    const idx = CHANNELS.findIndex((c) => c.kind === "marquee" && marquee[c.slot ?? -1]?.id === m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => idx >= 0 && tune(idx)}
+                        style={{ ...row, width: "100%", background: "transparent", border: "none", fontFamily: "inherit", fontSize: "inherit", cursor: "pointer", textAlign: "left", padding: "0.2rem 0" }}
+                      >
+                        <span style={{ color: m.color, width: "8.2rem", flexShrink: 0, fontWeight: 900, fontSize: "0.68rem", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>
+                          {idx >= 0 ? `CH ${pad(CHANNELS[idx].num)}` : "—"} {m.name}
+                        </span>
+                        <span style={{ ...cell, color: TT.white, flex: 1 }}>{m.title}</span>
+                        <span style={{ color: TT.grey, width: "4.2rem", textAlign: "right", flexShrink: 0, fontSize: "0.66rem" }}>{fmtDays(m.endDate)}</span>
+                        <span style={{ color: TT.yellow, width: "3rem", textAlign: "right", flexShrink: 0, fontWeight: 900 }}>{Math.round((m.yesPrice ?? 0) * 100)}%</span>
+                      </button>
+                    );
+                  })}
               </div>
             ) : (
               <div style={{ marginTop: "1rem" }}>
-                <TvStatic caption={`NO MARKETS ON CH ${pad(channel.num)} ${channel.name} — TRY ANOTHER CHANNEL`} />
+                <TvStatic caption={`CH ${pad(channel.num)} OFF AIR — NO MARKET ON THIS SLOT`} />
               </div>
             )
           ) : channel.kind === "rank" ? (
@@ -730,7 +757,7 @@ export default function App() {
               <FieldRecordView op={recOp} record={record} onBack={() => setRecOp(null)} />
             ) : (
             <>
-              <SectionHead page="P108" title={netOps.length ? "NETWORK OPERATOR BOARD" : "SIGNAL LEADERBOARD"} color={TT.green} />
+              <SectionHead page="P107" title={netOps.length ? "NETWORK OPERATOR BOARD" : "SIGNAL LEADERBOARD"} color={TT.green} />
               {netOps.length > 0 ? (
                 <>
                   <div style={{ ...row, color: TT.grey, fontSize: "0.66rem", letterSpacing: "0.1em" }}>
@@ -807,9 +834,28 @@ export default function App() {
             </div>
           ) : (
             <>
-              <SectionHead page="P109" title="GUIDE — TOP MARKETS" color={TT.cyan} />
+              <SectionHead page="P108" title={clockNext.length ? "GUIDE — THE CHANNEL CLOCK" : "GUIDE — TOP MARKETS"} color={TT.cyan} />
+              {clockNext.length > 0 && (
+                <>
+                  <div style={{ ...row, color: TT.grey, fontSize: "0.66rem", letterSpacing: "0.1em" }}>
+                    <span style={{ width: "3.4rem", flexShrink: 0 }}>STARTS</span>
+                    <span style={{ flex: 1 }}>SEGMENT</span>
+                    <span style={{ width: "5rem", flexShrink: 0 }}>LANE</span>
+                    <span style={{ width: "3rem", textAlign: "right", flexShrink: 0 }}>YES</span>
+                  </div>
+                  {clockNext.map((sg) => (
+                    <a key={sg.segmentId} href={denpaLinks.market(`/m/${sg.id}`)} target="_blank" rel="noreferrer" style={{ ...row, textDecoration: "none" }}>
+                      <span style={{ color: TT.cyan, width: "3.4rem", flexShrink: 0 }}>{hhmm(sg.startsAt)}</span>
+                      <span style={{ ...cell, color: TT.white, flex: 1 }}>{sg.title}</span>
+                      <span style={{ color: TT.grey, width: "5rem", flexShrink: 0, fontSize: "0.64rem", ...cell }}>{(sg.category || "").toUpperCase()}</span>
+                      <span style={{ color: TT.yellow, width: "3rem", textAlign: "right", flexShrink: 0, fontWeight: 900 }}>{Math.round(sg.yesPrice)}%</span>
+                    </a>
+                  ))}
+                  <SectionHead page="P109" title="TOP MARKETS" color={TT.cyan} />
+                </>
+              )}
               {tiles.length === 0 ? (
-                <TvStatic caption="GUIDE OFFLINE" />
+                clockNext.length === 0 ? <TvStatic caption="GUIDE OFFLINE" /> : null
               ) : (
                 tiles.map((t) => (
                   <a key={t.id} href={denpaLinks.market(t.route)} target="_blank" rel="noreferrer" style={{ ...row, textDecoration: "none" }}>
@@ -827,27 +873,28 @@ export default function App() {
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
             {CHANNELS.map((c, i) => {
               const on = i === chIdx;
+              const slotM = c.kind === "marquee" ? marquee[c.slot ?? -1] : undefined;
               const count =
-                c.kind === "markets"
-                  ? ((c.lane ? laneFor(program, c.lane)?.segs.length : undefined) ||
-                    (c.cat ? schedCache[c.cat]?.length : undefined) ||
-                    (loaded ? 0 : undefined))
+                c.kind === "marquee"
+                  ? (marquee.length ? (slotM ? 1 : 0) : undefined)
                   : c.kind === "rank" ? (netOps.length || board.length)
                   : c.kind === "wire" ? situations.length
                   : c.kind === "tape" ? tapes.length
-                  : tiles.length;
+                  : (clockNext.length || tiles.length);
               const isLive = (count ?? 0) > 0;
               const dot = on ? "#000" : isLive ? TT.green : "#444";
+              const label = slotM?.name ?? c.name;
+              const accent = slotM?.color ?? c.color;
               return (
                 <button
                   key={c.num}
                   onClick={() => tune(i)}
-                  title={count === undefined ? "tuning…" : isLive ? `${count} live` : "no signal"}
+                  title={slotM ? slotM.title : count === undefined ? "tuning…" : isLive ? `${count} live` : "no signal"}
                   style={{
                     cursor: "pointer",
-                    border: `1px solid ${on ? c.color : "#333"}`,
-                    background: on ? c.color : "transparent",
-                    color: on ? "#000" : c.color,
+                    border: `1px solid ${on ? accent : "#333"}`,
+                    background: on ? accent : "transparent",
+                    color: on ? "#000" : accent,
                     fontFamily: "inherit",
                     fontWeight: 900,
                     fontSize: "0.68rem",
@@ -855,7 +902,7 @@ export default function App() {
                     padding: "0.3rem 0.55rem",
                   }}
                 >
-                  <span style={{ color: dot }}>●</span> {pad(c.num)} {c.name}
+                  <span style={{ color: dot }}>●</span> {pad(c.num)} {label}
                 </button>
               );
             })}
@@ -880,7 +927,7 @@ export default function App() {
               { c: TT.red, l: "WIRE", idx: CHANNELS.findIndex((x) => x.kind === "wire") },
               { c: TT.green, l: "RANK", idx: CHANNELS.findIndex((x) => x.kind === "rank") },
               { c: TT.yellow, l: "GUIDE", idx: CHANNELS.findIndex((x) => x.kind === "guide") },
-              { c: TT.cyan, l: "SPORTS", idx: CHANNELS.findIndex((x) => x.name === "SPORTS") },
+              { c: TT.cyan, l: marquee[0]?.name ?? "CH 01", idx: CHANNELS.findIndex((x) => x.kind === "marquee") },
             ].map((b) => (
               <button
                 key={b.l}

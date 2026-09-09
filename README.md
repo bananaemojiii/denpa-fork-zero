@@ -32,6 +32,11 @@ Tune with the on-screen zapper, the **0–9** number keys, **T** for the tape, o
 **Live:** https://bananaemojiii.github.io/denpa-fork-zero/ — GitHub Pages, built
 from `main` on every push (`.github/workflows/pages.yml`).
 
+![CH 01 — a marquee market aired as a channel](docs/channel-marquee.png)
+
+*CH 01. One long-running market is the channel; its whole price arc is the
+programme. Every number on screen is live from denpa.ai.*
+
 ## What denpa.ai is today (September 2026)
 
 - **The home page is a TV.** Denpa TV rotates through the markets on air, and
@@ -65,44 +70,80 @@ from `main` on every push (`.github/workflows/pages.yml`).
 - **Play/pause holds the pick, never the clock** — the same rule on web, iOS
   and this fork.
 
-## Program view
+## The dial
 
-The dial is the clock. CH 1–6 are the lanes of the denpa.ai channel clock —
-the rundown the denpa.ai home TV rotates through — and the rest are the
-protocol's other live surfaces.
+**A channel is a market, not a category.** Tune CH 1 and you get one question
+with months of runway — GTA VI, Taiwan, 2028 — aired as its own channel, with
+its entire recorded price history as the programme. The arc is the show. A pin
+that resolves drops off the dial by itself and the band tops itself up from the
+protocol's own market list, so the dial stays live with no redeploy.
 
 | CH | Channel | Airs | Source |
 |----|---------|------|--------|
-| 0 | WIRE    | what moved in the last 24h — one story per event, biggest mover first | `/api/situations` |
-| 1 | SPORTS  | the SPORTS lane of the denpa.ai channel clock | channel clock, else legacy schedule |
-| 2 | MUSIC   | the MUSIC lane | channel clock, else legacy schedule |
-| 3 | FILM    | the FILM lane | channel clock |
-| 4 | TV      | the TV lane | channel clock |
-| 5 | FASHION | the FASHION lane | channel clock |
-| 6 | CRYPTO  | the CRYPTO lane | channel clock, else legacy schedule |
-| 7 | RANK    | network operator board merged across every station — select an operator to open their public field record (rank, score, accuracy, streak, CLV, recent calls with receipts) | `/api/network/operators` · `/api/network/field-record` |
-| 8 | GUIDE   | top markets across the protocol | `/api/polymarket/featured` |
-| 9 | TAPE    | the federated clip reel, played as a channel (HLS) | `/api/network/tapes` |
+| 0 | WIRE | what moved in the last 24h — one story per event, biggest mover first | `/api/situations` |
+| 1–6 | the marquee band | one long-running market each: full price arc, range, runway, SIGNAL | `/api/network/market/:id` + `/api/polymarket/market-history?interval=ALL` |
+| 7 | RANK | network operator board — public field records merged across every station; select an operator for their record | `/api/network/operators` → `/api/network/field-record/:handle` |
+| 8 | GUIDE | the channel clock — what the protocol airs next across every lane, with real start times — then the top markets | `/api/broadcast/program` + `/api/polymarket/featured` |
+| 9 | TAPE | the federated clip reel, played as a channel (HLS) | `/api/network/tapes` |
 
-NOW PLAYING is the content segment on air right now, UP NEXT is the rundown
-with real start times, and the masthead shows `CHANNEL CLOCK LIVE`. When the
-clock is unwired, a lane with a legacy schedule category falls back to it (ON
-AIR first, else soonest to resolve); the others go to dead air. Other lanes
-(politics, news, science) live on other stations — a fork asks the hub for its
-own clock: `/api/network/program?providers=kalshi&categories=politics,news`.
+The marquee band ships with these pins, in priority order, and four reserves
+promoted as the leaders resolve — edit `MARQUEE_PINS` in `src/lib/denpa.ts` to
+programme your own station:
 
-A lane with nothing to air shows the animated **NO SIGNAL** screen. Every feed
-refreshes every 30s and fails independently.
+| Slot | Name | Market |
+|------|------|--------|
+| CH 1 | GTA VI | GTA 6 launch postponed again? |
+| CH 2 | IRAN | Will the U.S. invade Iran before 2027? |
+| CH 3 | TAIWAN | Will China invade Taiwan by end of 2026? |
+| CH 4 | CONTACT | Will the US confirm that aliens exist before 2027? |
+| CH 5 | 2028 | Will Gavin Newsom win the 2028 US Presidential Election? |
+| CH 6 | CLARITY | Clarity Act (H.R.3633) signed into law in 2026? |
 
-## What each lane airs
+Auto-fill only runs when fewer than six pins survive: open markets with at least
+90 days of runway, biggest first, collapsed one-per-question-family so a
+128-bucket event like the 2028 nomination cannot swallow the whole dial.
 
-- **NOW PLAYING** — the on-air (or soonest-resolving) market for the lane
+A slot with no market shows the animated **NO SIGNAL** screen. Every feed
+refreshes independently — 30s for the boards, 60s for the band.
+
+## What a marquee channel airs
+
+- **NOW PLAYING** — the market, linked to its denpa.ai page
 - **YES / NO** — live split bars
-- **CHART** — 60 min of 1-minute YES price history + a live ▲/▼ change readout
-- **CHANNEL CLOCK — NEXT IN / RESOLVES IN** — live countdown
-- **UP NEXT** — the lane's rundown
+- **TIMELINE** — the market's whole recorded price history, with the y-axis
+  scaled to the band it actually traded in (a question that lives between 5% and
+  12% draws a flat line on a 0–100 axis; the arc is the point)
+- **OPEN · LOW · HIGH · NOW** — where it started, where it has been, where it is
+- **RESOLVES IN** — live countdown, in days
+- **ALSO ON THE DIAL** — the rest of the band, one keypress away
 - **▸ SIGNAL YES / NO** — opens the denpa.ai market page to file a forecast
   (money-free; one canonical signal per the protocol)
+
+## The other channels
+
+| | |
+|---|---|
+| ![CH 00 WIRE](docs/channel-wire.png) | ![CH 07 RANK](docs/channel-rank.png) |
+| **CH 00 WIRE** — every moving market in one event collapsed into a single story, ranked by how far belief travelled. | **CH 07 RANK** — the operator board merged across every station on the network; select one for their field record. |
+| ![CH 08 GUIDE](docs/channel-guide.png) | ![CH 09 TAPE](docs/channel-tape.png) |
+| **CH 08 GUIDE** — the channel clock: what the protocol airs next across every lane, with real start times. | **CH 09 TAPE** — the federated clip reel played as a channel, HLS, clips from every station. |
+
+## Forks on the network
+
+Fork Zero is the smallest one. These are the others — same protocol, different
+vertical, each owning only its surface and theme:
+
+| Fork | Vertical | Venue | What it shows |
+|------|----------|-------|---------------|
+| [denpa.ai](https://denpa.ai) | culture | Polymarket | the reference station — TV home, market pages, studio, receipts, MCP, the hub every other fork resolves through |
+| [cee.news](https://cee.news) | news | Kalshi | a teletext carousel — P-numbered pages, THE TAPE via the denpa hub, P900 network operator board. Read-only, no DB, pure SSR |
+| [basetv.tv](https://basetv.tv) | Base chain | Limitless | a sovereign fork with its own DB and auth; federates tapes and operators with denpa.ai in both directions |
+| [pund.it](https://pund.it) | Robinhood universe | Kalshi | a Kalshi universe filter, `kalshi-` ids, files SIGNALs to the hub with a `dk_` key and renders the returned field record |
+| **this repo** | any | whatever the hub normalizes | ~1,200 lines, three dependencies, no backend — clone, edit `MARQUEE_PINS` and the `TT` palette, ship |
+
+The protocol stays the same; the vertical changes. Denpa Core answers *who
+predicted what, when, with what context, and were they right* — a fork decides
+what domain to point that at.
 
 ## Run
 
@@ -124,10 +165,11 @@ VITE_DENPA_WEB=https://denpa.ai                              # clock / markets /
 ## Protocol surfaces this fork wires (all CORS-open reads, no auth)
 
 ```
-GET denpa.ai/api/broadcast/program?preset=default          # the denpa.ai channel clock (lanes → rundown); hot · resolving · close too
-GET denpa.ai/api/broadcast/schedule?cat=sport              # legacy schedule (fallback; sport · music · crypto here)
-GET denpa.ai/api/polymarket/featured                       # heatmap tiles (GUIDE + ticker)
-GET denpa.ai/api/polymarket/market-history?marketId=ID&interval=1H   # YES chart (legacy /history as fallback)
+GET denpa.ai/api/network/market/ID                         # THE DIAL — any protocol id → one normalized market shape
+GET denpa.ai/api/polymarket/market-history?marketId=ID&interval=ALL  # THE DIAL — the market's whole arc (1H · 24H · 7D · ALL)
+GET denpa.ai/api/polymarket/markets                        # THE DIAL — auto-fill pool when a pin resolves
+GET denpa.ai/api/broadcast/program?preset=default          # GUIDE — the channel clock (lanes → rundown); hot · resolving · close too
+GET denpa.ai/api/polymarket/featured                       # GUIDE + ticker — heatmap tiles
 GET denpa.ai/api/situations?window=24h&limit=30            # WIRE — stories of belief movement (never sum a story's deltas)
 GET denpa.ai/api/network/tapes?limit=20                    # TAPE — federated clips (HLS)
 GET denpa.ai/api/network/operators                         # RANK — merged operator board
@@ -140,10 +182,13 @@ a fork:
 
 ```
 GET denpa.ai/api/network/program?providers=kalshi&categories=politics,news   # your station's own clock
-GET denpa.ai/api/network/market/ID                         # one normalized market shape for any protocol id
 GET denpa.ai/api/network/crowd                             # crowd consensus vs market price, per market
 GET denpa.ai/api/network/pulse                             # the protocol's traction series
 ```
+
+Because the dial reads `/api/network/market/:id`, a pin is not Polymarket-only:
+the same endpoint normalizes `kalshi-…` and `lmt-…` ids to the same shape, so a
+Kalshi or Limitless station programmes its band by changing ids, nothing else.
 
 Filing a SIGNAL is a write: `POST denpa.ai/api/predictions` with a `dk_` key,
 proxied through your own server route (not CORS-open). This fork links to the
@@ -157,9 +202,10 @@ browser reads them cross-origin from `localhost` or any deployed fork domain.
 
 ```
 src/
-  App.tsx        the broadcast set — channels, zapper, now-playing screen, WIRE, TAPE player, rundown, ticker
-  lib/denpa.ts   typed denpa.ai client (clock / schedule / heatmap / history / situations / tapes / operators / field record / CHANNELS)
+  App.tsx        the broadcast set — the marquee screen, zapper, WIRE, RANK + field record, GUIDE, TAPE player, ticker
+  lib/denpa.ts   typed denpa.ai client (market / marquee band / history / clock / heatmap / situations / tapes / operators / field record / CHANNELS)
   index.css      black, blocky monospace base
+docs/            README screenshots
 ```
 
 Only runtime dependency beyond React: `hls.js` for the TAPE channel (loaded
@@ -167,11 +213,13 @@ first; Safari falls back to native HLS).
 
 ## Extending the fork
 
-- **Add a channel:** push to `CHANNELS` in `src/lib/denpa.ts` with a clock
-  `lane` key (and a legacy `cat` only where the schedule route knows it).
+- **Programme the dial:** edit `MARQUEE_PINS` in `src/lib/denpa.ts` — an id, a
+  short channel name, an accent. Ids come from any denpa.ai market URL
+  (`denpa.ai/m/668591` → `"668591"`), and `kalshi-…` / `lmt-…` ids work too.
+  Add or remove dial slots in `CHANNELS` and bump `MARQUEE_SLOTS` to match.
 - **Reskin:** the whole look is the `TT` palette in `App.tsx` — swap it for your
   station's theme.
-- **Your own clock:** point the market channels at
+- **Your own clock:** point GUIDE at
   `/api/network/program?providers=…&categories=…` for a station on other
   venues or lanes — same shape, no env var.
 - **SIGNAL writes:** go through the denpa.ai signal API (key-gated) — not a second
@@ -179,6 +227,15 @@ first; Safari falls back to native HLS).
 
 ## Changelog
 
+- **0.3.0 (2026-09-09)** — **a channel is a market.** The category dial
+  (SPORTS · MUSIC · FILM · TV · FASHION · CRYPTO) is retired; CH 1–6 are now the
+  marquee band — one long-running market each, pinned by id and topped up
+  automatically as pins resolve, read through `/api/network/market/:id` so the
+  band is venue-agnostic. The chart is the market's whole arc
+  (`interval=ALL`) with the y-axis scaled to its real trading range, plus
+  OPEN / LOW / HIGH / NOW and days of runway. GUIDE (CH 8) inherits the channel
+  clock — every lane, real start times. README gains screenshots and the forks
+  on the network. The legacy `/api/broadcast/schedule` path is gone.
 - **0.2.3 (2026-09-09)** — hosted: GitHub Pages workflow builds `main` to
   bananaemojiii.github.io/denpa-fork-zero (Vite `base` from `BASE_PATH`).
 - **0.2.2 (2026-09-09)** — RANK opens field records: selecting an operator pulls
