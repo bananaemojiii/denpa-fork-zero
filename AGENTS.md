@@ -26,9 +26,9 @@ Created by Lukas Chmiel and Robert Inoma.
   `fetchMarket` (any protocol id → one shape), `fetchMarquee` (the CH 1–6 band)
   + `MARQUEE_PINS` / `MARQUEE_SLOTS`, `fetchProgram` (channel clock, GUIDE),
   `fetchHeatmap`, `fetchHistory`, `fetchSituations` + `marketRoute`, `fetchTapes`,
-  `fetchNetworkOperators`, `fetchFieldRecord`, `fetchLeaderboard`, `CHANNELS`, `denpaLinks`, and the
+  `fetchNetworkOperators`, `fetchFieldRecord`, `CHANNELS`, `denpaLinks`, and the
   `ProgramLane` / `ProgramSegment` / `BroadcastSegment` / `HeatmapTile` /
-  `PricePoint` / `Situation` / `Tape` / `NetOperator` / `FieldRecord` / `OperatorRank` / `Channel` types.
+  `PricePoint` / `Situation` / `Tape` / `NetOperator` / `FieldRecord` / `DenpaMarket` / `MarqueeMarket` / `Channel` types.
 - `src/App.tsx` — the broadcast surface: `TvStatic` (the static-TV placeholder),
   `Sparkline` (YES price chart; `fit` scales the axis to the traded range),
   `MarqueeScreen`, `WireBoard`, `FieldRecordView`, `TapePlayer`
@@ -48,10 +48,12 @@ GET denpa.ai/api/situations?window=24h&limit=30             # stories of belief 
 GET denpa.ai/api/network/tapes?limit=20                     # federated clips (HLS manifests)
 GET denpa.ai/api/network/operators                          # merged operator board
 GET denpa.ai/api/network/field-record/HANDLE                # public field record (RANK row click; 404 → station page)
-GET api-production-802f5.up.railway.app/api/v1/signals/leaderboard?operators=human
 ```
 
-Configured via `.env` (`VITE_DENPA_API`, `VITE_DENPA_WEB`); see `.env.example`.
+Configured via `.env` (`VITE_DENPA_WEB`); see `.env.example`. Everything above is
+on the denpa.ai hub with `Access-Control-Allow-Origin: *`. Do NOT wire
+`api-production-…/api/v1/*` from browser code: its CORS allowlist is `localhost`
++ `*.up.railway.app`, so it is blocked on any other deployed origin.
 SIGNAL writes are `POST denpa.ai/api/predictions` with a `dk_` key through your
 own server route (not CORS-open) — reads need nothing. `/api/wire` and
 `/api/aura/score` are not CORS-open either; fetch them server-side if you need them.

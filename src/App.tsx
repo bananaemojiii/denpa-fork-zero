@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Hls from "hls.js";
 import {
-  fetchLeaderboard,
   fetchHeatmap,
   fetchHistory,
   fetchMarquee,
@@ -13,7 +12,6 @@ import {
   denpaLinks,
   CHANNELS,
   type MarqueeMarket,
-  type OperatorRank,
   type HeatmapTile,
   type ProgramLane,
   type ProgramSegment,
@@ -506,7 +504,6 @@ export default function App() {
 
   // The marquee band (CH 1–6) + global feeds.
   const [marquee, setMarquee] = useState<MarqueeMarket[]>([]);
-  const [board, setBoard] = useState<OperatorRank[]>([]);
   const [netOps, setNetOps] = useState<NetOperator[]>([]);
   // RANK: the selected operator + their hub field record (undefined = pulling, null = none).
   const [recOp, setRecOp] = useState<NetOperator | null>(null);
@@ -552,12 +549,16 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [chIdx, tune]);
 
-  // Global feeds (leaderboard + heatmap) — initial + 30s refresh.
+  // Global feeds — initial + 30s refresh. Every one of these is a denpa.ai hub
+  // endpoint sending Access-Control-Allow-Origin: *, so they read from any host
+  // the fork is deployed on. (The api-production leaderboard is NOT: its CORS
+  // allowlist is localhost + *.up.railway.app, so a browser fork on any other
+  // domain gets a blocked request. RANK reads /api/network/operators instead,
+  // which is the merged board across every station anyway.)
   useEffect(() => {
     let live = true;
     const load = async () => {
-      const [lb, hm, pg, st, tp, op] = await Promise.allSettled([
-        fetchLeaderboard(20),
+      const [hm, pg, st, tp, op] = await Promise.allSettled([
         fetchHeatmap(),
         fetchProgram("default"),
         fetchSituations(30, "24h"),
@@ -566,8 +567,6 @@ export default function App() {
       ]);
       if (!live) return;
       let errs = 0;
-      if (lb.status === "fulfilled") setBoard(lb.value);
-      else errs++;
       if (hm.status === "fulfilled") setTiles(hm.value);
       else errs++;
       if (pg.status === "fulfilled") setProgram(pg.value);
@@ -792,34 +791,8 @@ export default function App() {
                     </a>
                   ))}
                 </>
-              ) : board.length === 0 ? (
-                <TvStatic caption="LEADERBOARD OFFLINE" />
               ) : (
-                <>
-                  <div style={{ ...row, color: TT.grey, fontSize: "0.66rem", letterSpacing: "0.1em" }}>
-                    <span style={{ width: "2rem", flexShrink: 0 }}>#</span>
-                    <span style={{ flex: 1 }}>OPERATOR</span>
-                    <span style={{ width: "4.5rem", textAlign: "right", flexShrink: 0 }}>W–L</span>
-                    <span style={{ width: "4rem", textAlign: "right", flexShrink: 0 }}>SCORE</span>
-                    <span style={{ width: "4rem", textAlign: "right", flexShrink: 0 }}>ACC</span>
-                  </div>
-                  {board.map((o) => (
-                    <a key={o.privyId} href={denpaLinks.operator(o.callsign)} target="_blank" rel="noreferrer" style={{ ...row, textDecoration: "none" }}>
-                      <span style={{ color: TT.cyan, width: "2rem", flexShrink: 0 }}>{o.rank}</span>
-                      <span style={{ ...cell, color: TT.white, flex: 1 }}>
-                        {o.displayName || o.callsign}
-                        {o.pending > 0 && <span style={{ color: TT.grey, fontSize: "0.62rem" }}> · {o.pending} OPEN</span>}
-                      </span>
-                      <span style={{ width: "4.5rem", textAlign: "right", flexShrink: 0, fontSize: "0.72rem" }}>
-                        <span style={{ color: TT.green }}>{o.won}</span>
-                        <span style={{ color: TT.grey }}>–</span>
-                        <span style={{ color: TT.red }}>{o.lost}</span>
-                      </span>
-                      <span style={{ color: TT.yellow, width: "4rem", textAlign: "right", flexShrink: 0, fontWeight: 900 }}>{o.score}</span>
-                      <span style={{ color: TT.green, width: "4rem", textAlign: "right", flexShrink: 0 }}>{o.accuracy}%</span>
-                    </a>
-                  ))}
-                </>
+                <TvStatic caption="OPERATOR BOARD OFFLINE" />
               )}
             </>
             )
@@ -877,7 +850,7 @@ export default function App() {
               const count =
                 c.kind === "marquee"
                   ? (marquee.length ? (slotM ? 1 : 0) : undefined)
-                  : c.kind === "rank" ? (netOps.length || board.length)
+                  : c.kind === "rank" ? netOps.length
                   : c.kind === "wire" ? situations.length
                   : c.kind === "tape" ? tapes.length
                   : (clockNext.length || tiles.length);

@@ -1,45 +1,21 @@
 // Denpa protocol client. All data resolves THROUGH denpa.ai — the fork owns its
-// surface, denpa owns markets / signals / identity. Two backends, both CORS-open
-// to forks (plain REST, no auth for reads, poll ~30s):
-//   - API service (api-production-…) → signal leaderboard
-//   - denpa.ai web                   → heatmap tiles · channel clock (/api/broadcast/program)
+// surface, denpa owns markets / signals / identity. Every endpoint below is on the
+// denpa.ai hub and sends Access-Control-Allow-Origin: * (plain REST, no auth for
+// reads, poll ~30s), so the fork reads them from whatever host it is deployed on:
+//   - denpa.ai web                   → markets · heatmap tiles · channel clock (/api/broadcast/program)
 //                                      · legacy schedule · YES price history · situations
 //                                      (/api/situations) · federated tapes + operator board
 //                                      (/api/network/*)
 //
 // Configure in .env (see .env.example):
-//   VITE_DENPA_API=https://api-production-802f5.up.railway.app
 //   VITE_DENPA_WEB=https://denpa.ai
 
-const API = import.meta.env.VITE_DENPA_API ?? "https://api-production-802f5.up.railway.app";
 const WEB = import.meta.env.VITE_DENPA_WEB ?? "https://denpa.ai";
 
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url, { headers: { accept: "application/json" } });
   if (!res.ok) throw new Error(`${res.status} ${url}`);
   return (await res.json()) as T;
-}
-
-/* ───────────── Signal leaderboard (API service) ───────────── */
-export interface OperatorRank {
-  rank: number;
-  privyId: string;
-  callsign: string;
-  displayName: string;
-  score: number;
-  total: number;
-  won: number;
-  lost: number;
-  pending: number;
-  accuracy: number; // 0–100
-}
-
-// operators: "human" (headline) | "all" (includes AI operators, ~2.7× inflated)
-export async function fetchLeaderboard(limit = 12, operators: "human" | "all" = "human"): Promise<OperatorRank[]> {
-  const d = await getJSON<{ leaderboard: OperatorRank[] }>(
-    `${API}/api/v1/signals/leaderboard?limit=${limit}&operators=${operators}`,
-  );
-  return d.leaderboard ?? [];
 }
 
 /* ───────────── Home heatmap tiles (denpa.ai) ───────────── */

@@ -155,12 +155,14 @@ npm run dev            # http://localhost:5173
 
 ## Config
 
-`.env` (Vite) — both point at denpa.ai infrastructure:
+`.env` (Vite) — one hub, one variable:
 
 ```
-VITE_DENPA_API=https://api-production-802f5.up.railway.app   # signal leaderboard
-VITE_DENPA_WEB=https://denpa.ai                              # clock / markets / charts / situations / network
+VITE_DENPA_WEB=https://denpa.ai   # markets / charts / clock / situations / tapes / operators
 ```
+
+Every endpoint the fork reads sends `Access-Control-Allow-Origin: *`, so it works
+from `localhost`, GitHub Pages, or any domain you deploy on.
 
 ## Protocol surfaces this fork wires (all CORS-open reads, no auth)
 
@@ -174,8 +176,15 @@ GET denpa.ai/api/situations?window=24h&limit=30            # WIRE — stories of
 GET denpa.ai/api/network/tapes?limit=20                    # TAPE — federated clips (HLS)
 GET denpa.ai/api/network/operators                         # RANK — merged operator board
 GET denpa.ai/api/network/field-record/HANDLE               # RANK — an operator's public field record (+ receipt URLs)
-GET api-production-802f5.up.railway.app/api/v1/signals/leaderboard?operators=human   # RANK fallback
 ```
+
+Everything above is on the denpa.ai hub, on purpose. The signal leaderboard on
+the API service (`api-production-…/api/v1/signals/leaderboard`) is **not**
+CORS-open to arbitrary origins — its allowlist is `localhost` plus
+`*.up.railway.app` — so a browser fork deployed anywhere else gets a blocked
+request. RANK reads `/api/network/operators`, which is the merged board across
+every station anyway. If you need the API service from a browser fork, proxy it
+server-side.
 
 Also CORS-open on the same hub, not wired here yet — the natural next steps for
 a fork:
@@ -235,7 +244,11 @@ first; Safari falls back to native HLS).
   (`interval=ALL`) with the y-axis scaled to its real trading range, plus
   OPEN / LOW / HIGH / NOW and days of runway. GUIDE (CH 8) inherits the channel
   clock — every lane, real start times. README gains screenshots and the forks
-  on the network. The legacy `/api/broadcast/schedule` path is gone.
+  on the network. The legacy `/api/broadcast/schedule` path is gone, and so is
+  the API-service leaderboard: its CORS allowlist is `localhost` +
+  `*.up.railway.app`, so it was a guaranteed blocked request (and a permanent
+  "1 FEED OFFLINE" banner) on every fork deployed anywhere else. RANK reads the
+  hub's merged operator board. The fork now needs one env var, not two.
 - **0.2.3 (2026-09-09)** — hosted: GitHub Pages workflow builds `main` to
   bananaemojiii.github.io/denpa-fork-zero (Vite `base` from `BASE_PATH`).
 - **0.2.2 (2026-09-09)** — RANK opens field records: selecting an operator pulls
