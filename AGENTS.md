@@ -59,7 +59,8 @@ own server route (not CORS-open) — reads need nothing. `/api/wire` and
   `cat` (`sport` / `crypto` / `politics` / `culture` / `music` / `news` /
   `science`). Kind `"markets"` airs that category (clock lane first, schedule
   fallback); `"rank"` is the operator board; `"guide"` is the heatmap; `"wire"`
-  is situations; `"tape"` is the clip reel. Keys 0–9 map to `num`; T tunes TAPE.
+  is situations; `"tape"` is the clip reel. Keys 0–9 map to `num`; T tunes TAPE; SPACE/P toggles `paused`
+  (holds `nowSeg` via `heldSegRef` + pauses `TapePlayer`; `tune()` clears it).
 - **Reskin:** edit the `TT` palette in `src/App.tsx` — that's the entire look.
 
 ## Forking this into a NEW vertical

@@ -16,6 +16,7 @@ operators and the schedule all resolve **through denpa.ai** — there is no seco
 backend.
 
 Tune with the on-screen zapper, the **0–9** number keys, **T** for the tape, or **▲ / ▼**.
+**SPACE** (or **P**, or the ❚❚ PAUSE button) pauses the autocut — the now-playing market and the tape hold; the clock keeps ticking, so PLAY re-syncs to the rundown. Zapping resumes.
 
 **Created by Lukas Chmiel and Robert Inoma.**
 

@@ -312,9 +312,18 @@ function WireBoard({ items }: { items: Situation[] }) {
 
 /* ───────────── TAPE — the federated clip reel, played as a channel ─────────────
    hls.js first (Chrome 152+ native HLS renders black on some CDNs), native <video> as the fallback. */
-function TapePlayer({ tapes }: { tapes: Tape[] }) {
+function TapePlayer({ tapes, paused }: { tapes: Tape[]; paused: boolean }) {
   const [i, setI] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Play/pause from the set: a paused clip never ends, so the reel stays put.
+  // The onPlay guard also catches autoplay on a clip that attaches while paused.
+  const pausedRef = useRef(paused);
+  useEffect(() => {
+    pausedRef.current = paused;
+    const v = videoRef.current;
+    if (!v) return;
+    if (paused) v.pause(); else void v.play().catch(() => {});
+  }, [paused]);
   const tape = tapes[i];
   const next = useCallback(() => setI((x) => (tapes.length ? (x + 1) % tapes.length : 0)), [tapes.length]);
   const prev = useCallback(() => setI((x) => (tapes.length ? (x - 1 + tapes.length) % tapes.length : 0)), [tapes.length]);
@@ -346,7 +355,7 @@ function TapePlayer({ tapes }: { tapes: Tape[] }) {
   return (
     <div style={{ background: "#070707" }}>
       <div style={{ position: "relative", background: "#000", aspectRatio: "16 / 9", maxHeight: 420 }}>
-        <video ref={videoRef} muted autoPlay playsInline onEnded={next} style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+        <video ref={videoRef} muted autoPlay playsInline onEnded={next} onPlay={() => { if (pausedRef.current) videoRef.current?.pause(); }} style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
         <div style={{ position: "absolute", left: 10, top: 8, color: TT.red, fontWeight: 900, letterSpacing: "0.14em", fontSize: "0.72rem", animation: "fz-blink 1s steps(1) infinite" }}>● TAPE</div>
         <div style={{ position: "absolute", right: 10, top: 8, color: TT.grey, fontSize: "0.66rem", letterSpacing: "0.1em" }}>{i + 1} / {tapes.length}</div>
       </div>
@@ -371,6 +380,8 @@ function TapePlayer({ tapes }: { tapes: Tape[] }) {
 export default function App() {
   const [now, setNow] = useState(new Date());
   const [chIdx, setChIdx] = useState(0);
+  // PAUSE holds the now-playing segment and the tape; the clock keeps ticking.
+  const [paused, setPaused] = useState(false);
   const channel = CHANNELS[chIdx];
 
   // Per-channel schedule cache (cat → segments) + global feeds.
@@ -396,6 +407,7 @@ export default function App() {
   const tune = useCallback((idx: number) => {
     const n = ((idx % CHANNELS.length) + CHANNELS.length) % CHANNELS.length;
     setChIdx(n);
+    setPaused(false); // zapping resumes
   }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -405,6 +417,9 @@ export default function App() {
       } else if (e.key === "t" || e.key === "T") {
         const found = CHANNELS.findIndex((c) => c.kind === "tape");
         if (found >= 0) tune(found);
+      } else if (e.key === " " || e.key === "p" || e.key === "P") {
+        e.preventDefault();
+        setPaused((p) => !p);
       } else if (e.key === "ArrowUp") tune(chIdx - 1);
       else if (e.key === "ArrowDown") tune(chIdx + 1);
     };
@@ -484,11 +499,16 @@ export default function App() {
     return content.sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
   }, [lane, now]);
   const onClock = clockSegs.length > 0;
+  // Paused: hold the segment on air (same rule as @denpa/sdk onAirSegment —
+  // hold the pick, never stop the clock, so resume re-syncs to the rundown).
+  const heldSegRef = useRef<BroadcastSegment | ProgramSegment | null>(null);
   const nowSeg: BroadcastSegment | ProgramSegment | null = useMemo(() => {
+    if (paused && heldSegRef.current) return heldSegRef.current;
     if (onClock) return clockSegs[0];
     if (!sched || sched.length === 0) return null;
     return sched.find((s) => s.bucket === "ON AIR") ?? sched[0];
-  }, [onClock, clockSegs, sched]);
+  }, [paused, onClock, clockSegs, sched]);
+  heldSegRef.current = nowSeg;
   const guide = useMemo<(BroadcastSegment | ProgramSegment)[]>(() => {
     if (onClock) {
       const seen = new Set<string>([clockSegs[0].id]);
@@ -552,6 +572,13 @@ export default function App() {
             <span style={{ color: TT.white }}>P{100 + channel.num}</span>
             <span style={{ color: TT.cyan, fontWeight: 900, letterSpacing: "0.2em" }}>DENPA · SIGNAL</span>
             <span style={{ color: TT.green }}>
+              <button
+                onClick={() => setPaused((p) => !p)}
+                title={paused ? "resume (SPACE)" : "pause (SPACE)"}
+                style={{ background: "transparent", color: paused ? TT.yellow : TT.white, border: "1px solid #333", fontFamily: "inherit", fontSize: "0.7rem", fontWeight: 900, letterSpacing: "0.1em", padding: "0.15rem 0.5rem", marginRight: "0.8rem", cursor: "pointer" }}
+              >
+                {paused ? "▶ PLAY" : "❚❚ PAUSE"}
+              </button>
               {fmtDate(now)} {fmtClock(now)}
             </span>
           </div>
@@ -564,7 +591,7 @@ export default function App() {
             </div>
           </div>
           <div style={{ color: TT.grey, fontSize: "0.7rem", letterSpacing: "0.18em", borderBottom: `2px solid ${TT.magenta}`, paddingBottom: "0.6rem" }}>
-            THE NEW MEDIA PRIMITIVE — EVERY MARKET A LIVE SIGNAL · FORK ZERO · denpa.ai{program ? "  ·  CHANNEL CLOCK LIVE" : ""}{errors > 0 ? `  ·  ${errors} FEED(S) OFFLINE` : ""}
+            THE NEW MEDIA PRIMITIVE — EVERY MARKET A LIVE SIGNAL · FORK ZERO · denpa.ai{program ? "  ·  CHANNEL CLOCK LIVE" : ""}{paused ? "  ·  PAUSED" : ""}{errors > 0 ? `  ·  ${errors} FEED(S) OFFLINE` : ""}
           </div>
 
           {/* ───── THE SCREEN ───── */}
@@ -666,7 +693,7 @@ export default function App() {
             </>
           ) : channel.kind === "tape" ? (
             <div style={{ marginTop: "1rem" }}>
-              <TapePlayer tapes={tapes} />
+              <TapePlayer tapes={tapes} paused={paused} />
             </div>
           ) : (
             <>
