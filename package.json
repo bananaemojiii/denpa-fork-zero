@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.2.3",
   "type": "module",
-  "description": "DENPA FORK ZERO \u2014 the reference client for the Denpa protocol. Owns its surface (a static-TV broadcast set); markets, the channel clock, situations, tapes, operators and signals all resolve through denpa.ai.",
+  "description": "DENPA FORK ZERO — the reference client for the Denpa protocol. Owns its surface (a static-TV broadcast set); markets, the channel clock, situations, tapes, operators and signals all resolve through denpa.ai.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -15,6 +15,7 @@
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@types/node": "^22.20.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
