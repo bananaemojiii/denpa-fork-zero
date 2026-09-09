@@ -1,7 +1,7 @@
 {
   "name": "denpa-fork-zero",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "module",
   "description": "DENPA FORK ZERO \u2014 the reference client for the Denpa protocol. Owns its surface (a static-TV broadcast set); markets, the channel clock, situations, tapes, operators and signals all resolve through denpa.ai.",
   "scripts": {

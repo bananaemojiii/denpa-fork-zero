@@ -24,9 +24,9 @@ Created by Lukas Chmiel and Robert Inoma.
 - `src/lib/denpa.ts` — the protocol client + `CHANNELS`. Exports:
   `fetchProgram` (channel clock) + `laneFor`, `fetchSchedule` (legacy fallback),
   `fetchHeatmap`, `fetchHistory`, `fetchSituations` + `marketRoute`, `fetchTapes`,
-  `fetchNetworkOperators`, `fetchLeaderboard`, `CHANNELS`, `denpaLinks`, and the
+  `fetchNetworkOperators`, `fetchFieldRecord`, `fetchLeaderboard`, `CHANNELS`, `denpaLinks`, and the
   `ProgramLane` / `ProgramSegment` / `BroadcastSegment` / `HeatmapTile` /
-  `PricePoint` / `Situation` / `Tape` / `NetOperator` / `OperatorRank` / `Channel` types.
+  `PricePoint` / `Situation` / `Tape` / `NetOperator` / `FieldRecord` / `OperatorRank` / `Channel` types.
 - `src/App.tsx` — the broadcast surface: `TvStatic` (the static-TV placeholder),
   `Sparkline` (YES price chart), `NowPlaying`, `WireBoard`, `TapePlayer`
   (hls.js first, native HLS fallback), the zapper, and the `TT` teletext
@@ -43,6 +43,7 @@ GET denpa.ai/api/polymarket/market-history?marketId=ID&interval=1H   # YES price
 GET denpa.ai/api/situations?window=24h&limit=30             # stories of belief movement (never sum deltas)
 GET denpa.ai/api/network/tapes?limit=20                     # federated clips (HLS manifests)
 GET denpa.ai/api/network/operators                          # merged operator board
+GET denpa.ai/api/network/field-record/HANDLE                # public field record (RANK row click; 404 → station page)
 GET api-production-802f5.up.railway.app/api/v1/signals/leaderboard?operators=human
 ```
 

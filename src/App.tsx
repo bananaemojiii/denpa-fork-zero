@@ -23,6 +23,8 @@ import {
   type Situation,
   type Tape,
   type NetOperator,
+  fetchFieldRecord,
+  type FieldRecord,
 } from "./lib/denpa";
 
 // Retro broadcast palette — the static-TV skin IS the surface.
@@ -377,6 +379,84 @@ function TapePlayer({ tapes, paused }: { tapes: Tape[]; paused: boolean }) {
   );
 }
 
+// FIELD RECORD — an operator's public judgment history, pulled from the hub when a
+// RANK row is selected. Loading / missing both render dead air, never a spinner.
+function FieldRecordView({ op, record, onBack }: { op: NetOperator; record: FieldRecord | null | undefined; onBack: () => void }) {
+  const name = (op.displayName || op.handle).toUpperCase();
+  const station = op.origin.toUpperCase();
+  const stat = (label: string, value: string | number, color: string = TT.white) => (
+    <div key={label} style={{ display: "flex", flexDirection: "column", minWidth: "5.4rem" }}>
+      <span style={{ color: TT.grey, fontSize: "0.62rem", letterSpacing: "0.1em" }}>{label}</span>
+      <span style={{ color, fontWeight: 900, fontSize: "1rem" }}>{value}</span>
+    </div>
+  );
+  const clv = record?.avgClvBps ?? null;
+  return (
+    <>
+      <SectionHead page="P108.1" title={`FIELD RECORD — ${name} · ${station}`} color={TT.green} />
+      <div style={{ display: "flex", gap: "0.9rem", alignItems: "baseline", marginBottom: "0.6rem", flexWrap: "wrap" }}>
+        <button
+          onClick={onBack}
+          style={{ cursor: "pointer", border: `1px solid ${TT.green}`, background: "transparent", color: TT.green, fontFamily: "inherit", fontWeight: 900, fontSize: "0.68rem", letterSpacing: "0.08em", padding: "0.25rem 0.55rem" }}
+        >
+          ◂ BACK
+        </button>
+        <a href={record?.profileUrl || op.href} target="_blank" rel="noreferrer" style={{ color: TT.cyan, fontSize: "0.68rem", letterSpacing: "0.08em" }}>
+          OPEN ON {station} ▸
+        </a>
+        <span style={{ color: TT.grey, fontSize: "0.62rem", letterSpacing: "0.08em" }}>ESC RETURNS TO THE BOARD</span>
+      </div>
+      {record === undefined ? (
+        <TvStatic caption="PULLING FIELD RECORD FROM THE HUB…" />
+      ) : record === null ? (
+        <TvStatic caption={`NO FIELD RECORD ON THE HUB FOR ${name} — OPEN ON ${station}`} />
+      ) : (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.8rem 1.4rem", padding: "0.5rem 0", borderTop: "1px solid #222", borderBottom: "1px solid #222" }}>
+            {stat("RANK", record.rank ? `#${record.rank} / ${record.operators}` : "—", TT.cyan)}
+            {stat("SCORE", record.score, TT.yellow)}
+            {stat("ACC", `${record.accuracy}%`, TT.green)}
+            {stat("CALLS", record.calls)}
+            {stat("W–L", `${record.correct}–${Math.max(0, record.resolved - record.correct)}`)}
+            {stat("OPEN", record.pending)}
+            {stat("STREAK", record.streak, record.streak > 0 ? TT.green : TT.white)}
+            {stat("AVG CLV", clv == null ? "—" : `${clv > 0 ? "+" : ""}${(clv / 100).toFixed(1)}PT`, clv == null ? TT.white : clv > 0 ? TT.green : clv < 0 ? TT.red : TT.white)}
+          </div>
+          <div style={{ ...row, color: TT.grey, fontSize: "0.66rem", letterSpacing: "0.1em", marginTop: "0.6rem" }}>
+            <span style={{ width: "2.6rem", flexShrink: 0 }}>CALL</span>
+            <span style={{ flex: 1 }}>MARKET</span>
+            <span style={{ width: "4.5rem", textAlign: "right", flexShrink: 0 }}>STATUS</span>
+            <span style={{ width: "5rem", textAlign: "right", flexShrink: 0 }}>RECEIPT</span>
+          </div>
+          {record.recent.length === 0 ? (
+            <div style={{ color: TT.grey, fontSize: "0.72rem", letterSpacing: "0.08em", padding: "0.4rem 0" }}>NO CALLS FILED YET</div>
+          ) : (
+            record.recent.map((c) => {
+              const sc = c.status === "won" ? TT.green : c.status === "lost" ? TT.red : TT.grey;
+              return (
+                <div key={`${c.marketId}:${c.createdAt}`} style={row}>
+                  <span style={{ width: "2.6rem", flexShrink: 0, fontWeight: 900, color: c.direction === "YES" ? TT.green : TT.cyan }}>{c.direction}</span>
+                  <a href={denpaLinks.market(`/m/${c.marketId}`)} target="_blank" rel="noreferrer" style={{ ...cell, flex: 1, color: TT.white, textDecoration: "none" }}>
+                    {c.marketTitle || c.marketId}
+                  </a>
+                  <span style={{ width: "4.5rem", textAlign: "right", flexShrink: 0, color: sc, fontWeight: 900, fontSize: "0.72rem" }}>{c.status.toUpperCase()}</span>
+                  <span style={{ width: "5rem", textAlign: "right", flexShrink: 0, fontSize: "0.68rem" }}>
+                    {c.receiptUrl ? (
+                      <a href={c.receiptUrl} target="_blank" rel="noreferrer" style={{ color: TT.yellow }}>◼ RECEIPT</a>
+                    ) : (
+                      <span style={{ color: TT.grey }}>—</span>
+                    )}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
 export default function App() {
   const [now, setNow] = useState(new Date());
   const [chIdx, setChIdx] = useState(0);
@@ -388,6 +468,9 @@ export default function App() {
   const [schedCache, setSchedCache] = useState<Record<string, BroadcastSegment[]>>({});
   const [board, setBoard] = useState<OperatorRank[]>([]);
   const [netOps, setNetOps] = useState<NetOperator[]>([]);
+  // RANK: the selected operator + their hub field record (undefined = pulling, null = none).
+  const [recOp, setRecOp] = useState<NetOperator | null>(null);
+  const [record, setRecord] = useState<FieldRecord | null | undefined>(undefined);
   const [tiles, setTiles] = useState<HeatmapTile[]>([]);
   const [program, setProgram] = useState<ProgramLane[] | null>(null);
   const [situations, setSituations] = useState<Situation[]>([]);
@@ -408,6 +491,7 @@ export default function App() {
     const n = ((idx % CHANNELS.length) + CHANNELS.length) % CHANNELS.length;
     setChIdx(n);
     setPaused(false); // zapping resumes
+    setRecOp(null); // back to the board
   }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -420,7 +504,8 @@ export default function App() {
       } else if (e.key === " " || e.key === "p" || e.key === "P") {
         e.preventDefault();
         setPaused((p) => !p);
-      } else if (e.key === "ArrowUp") tune(chIdx - 1);
+      } else if (e.key === "Escape") setRecOp(null);
+      else if (e.key === "ArrowUp") tune(chIdx - 1);
       else if (e.key === "ArrowDown") tune(chIdx + 1);
     };
     window.addEventListener("keydown", onKey);
@@ -487,6 +572,19 @@ export default function App() {
       clearInterval(id);
     };
   }, []);
+
+  // Field record for the selected RANK operator — hub service; station page is the fallback.
+  useEffect(() => {
+    if (!recOp) return;
+    let live = true;
+    setRecord(undefined);
+    void fetchFieldRecord(recOp.handle).then((r) => {
+      if (live) setRecord(r);
+    });
+    return () => {
+      live = false;
+    };
+  }, [recOp]);
 
   // Now-playing for the tuned channel. The canonical channel clock wins when it carries this
   // lane (the content segment on air right now, else the next one); otherwise fall back to
@@ -628,6 +726,9 @@ export default function App() {
               </div>
             )
           ) : channel.kind === "rank" ? (
+            recOp ? (
+              <FieldRecordView op={recOp} record={record} onBack={() => setRecOp(null)} />
+            ) : (
             <>
               <SectionHead page="P108" title={netOps.length ? "NETWORK OPERATOR BOARD" : "SIGNAL LEADERBOARD"} color={TT.green} />
               {netOps.length > 0 ? (
@@ -640,7 +741,15 @@ export default function App() {
                     <span style={{ width: "4rem", textAlign: "right", flexShrink: 0 }}>ACC</span>
                   </div>
                   {netOps.map((o, idx) => (
-                    <a key={`${o.origin}:${o.handle}`} href={o.href} target="_blank" rel="noreferrer" style={{ ...row, textDecoration: "none" }}>
+                    <a
+                      key={`${o.origin}:${o.handle}`}
+                      href={o.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="field record"
+                      onClick={(e) => { e.preventDefault(); setRecOp(o); }}
+                      style={{ ...row, textDecoration: "none", cursor: "pointer" }}
+                    >
                       <span style={{ color: TT.cyan, width: "2rem", flexShrink: 0 }}>{idx + 1}</span>
                       <span style={{ ...cell, color: TT.white, flex: 1 }}>
                         {o.displayName || o.handle}
@@ -686,6 +795,7 @@ export default function App() {
                 </>
               )}
             </>
+            )
           ) : channel.kind === "wire" ? (
             <>
               <SectionHead page="P100" title="WIRE — WHAT MOVED" color={TT.red} />

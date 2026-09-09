@@ -224,7 +224,44 @@ export async function fetchNetworkOperators(): Promise<NetOperator[]> {
   return d.operators ?? [];
 }
 
-/* ───────────── Channels — each market category is a channel ───────────── */
+/* ───────────── Field record — Layer 8 as a hub service (denpa.ai) ─────────────
+   GET /api/network/field-record/:handle — the operator's public judgment history,
+   served by the hub so forks render it instead of computing their own. */
+export interface FieldRecordCall {
+  marketId: string;
+  marketTitle: string;
+  direction: "YES" | "NO";
+  status: "won" | "lost" | "pending" | "void";
+  createdAt: string;
+  receiptUrl?: string | null;
+}
+export interface FieldRecord {
+  handle: string;
+  origin: string;
+  rank: number | null;
+  operators: number;
+  score: number;
+  calls: number;
+  resolved: number;
+  correct: number;
+  pending: number;
+  accuracy: number; // 0–100
+  streak: number;
+  avgClvBps: number | null;
+  recent: FieldRecordCall[];
+  profileUrl: string;
+}
+// null when the hub has no record for the handle (404) — the station page is the fallback.
+export async function fetchFieldRecord(handle: string): Promise<FieldRecord | null> {
+  try {
+    const d = await getJSON<FieldRecord>(`${WEB}/api/network/field-record/${encodeURIComponent(handle)}`);
+    return typeof d?.handle === "string" ? { ...d, recent: d.recent ?? [] } : null;
+  } catch {
+    return null;
+  }
+}
+
+/* ───────────── Channels — the dial is the clock ───────────── */
 export interface Channel {
   num: number;
   name: string;

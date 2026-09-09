@@ -77,7 +77,7 @@ protocol's other live surfaces.
 | 4 | TV      | the TV lane | channel clock |
 | 5 | FASHION | the FASHION lane | channel clock |
 | 6 | CRYPTO  | the CRYPTO lane | channel clock, else legacy schedule |
-| 7 | RANK    | network operator board — public field records merged across every station | `/api/network/operators` |
+| 7 | RANK    | network operator board merged across every station — select an operator to open their public field record (rank, score, accuracy, streak, CLV, recent calls with receipts) | `/api/network/operators` · `/api/network/field-record` |
 | 8 | GUIDE   | top markets across the protocol | `/api/polymarket/featured` |
 | 9 | TAPE    | the federated clip reel, played as a channel (HLS) | `/api/network/tapes` |
 
@@ -128,6 +128,7 @@ GET denpa.ai/api/polymarket/market-history?marketId=ID&interval=1H   # YES chart
 GET denpa.ai/api/situations?window=24h&limit=30            # WIRE — stories of belief movement (never sum a story's deltas)
 GET denpa.ai/api/network/tapes?limit=20                    # TAPE — federated clips (HLS)
 GET denpa.ai/api/network/operators                         # RANK — merged operator board
+GET denpa.ai/api/network/field-record/HANDLE               # RANK — an operator's public field record (+ receipt URLs)
 GET api-production-802f5.up.railway.app/api/v1/signals/leaderboard?operators=human   # RANK fallback
 ```
 
@@ -136,7 +137,6 @@ a fork:
 
 ```
 GET denpa.ai/api/network/program?providers=kalshi&categories=politics,news   # your station's own clock
-GET denpa.ai/api/network/field-record/HANDLE               # public field record (+ receipt URLs)
 GET denpa.ai/api/network/market/ID                         # one normalized market shape for any protocol id
 GET denpa.ai/api/network/crowd                             # crowd consensus vs market price, per market
 GET denpa.ai/api/network/pulse                             # the protocol's traction series
@@ -155,7 +155,7 @@ browser reads them cross-origin from `localhost` or any deployed fork domain.
 ```
 src/
   App.tsx        the broadcast set — channels, zapper, now-playing screen, WIRE, TAPE player, rundown, ticker
-  lib/denpa.ts   typed denpa.ai client (clock / schedule / heatmap / history / situations / tapes / operators / CHANNELS)
+  lib/denpa.ts   typed denpa.ai client (clock / schedule / heatmap / history / situations / tapes / operators / field record / CHANNELS)
   index.css      black, blocky monospace base
 ```
 
@@ -176,6 +176,11 @@ first; Safari falls back to native HLS).
 
 ## Changelog
 
+- **0.2.2 (2026-09-09)** — RANK opens field records: selecting an operator pulls
+  their public field record from the hub (`/api/network/field-record`) — rank,
+  score, accuracy, W–L, open calls, streak, average CLV, recent calls with
+  receipts; ESC / BACK returns to the board; no hub record → dead air + the
+  station page.
 - **0.2.1 (2026-09-09)** — manifesto + program view; the dial mirrors denpa.ai: CH 1–6 are the lanes the
   denpa.ai home TV airs (SPORTS · MUSIC · FILM · TV · FASHION · CRYPTO) read
   from `preset=default`; POLITICS / CULTURE / NEWS / SCIENCE retired (not on
