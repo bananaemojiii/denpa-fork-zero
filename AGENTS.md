@@ -51,9 +51,13 @@ GET denpa.ai/api/network/field-record/HANDLE                # public field recor
 ```
 
 Configured via `.env` (`VITE_DENPA_WEB`); see `.env.example`. Everything above is
-on the denpa.ai hub with `Access-Control-Allow-Origin: *`. Do NOT wire
-`api-production-…/api/v1/*` from browser code: its CORS allowlist is `localhost`
-+ `*.up.railway.app`, so it is blocked on any other deployed origin.
+on the denpa.ai hub with `Access-Control-Allow-Origin: *`. The API service
+(`api-production-…`) opened its PUBLIC READ surface to any origin on 2026-09-09
+(`/api/v1/signals/{leaderboard,external,curated}`, `/api/v1/polymarket/*`,
+`/api/v1/{feed,markets,leaderboard,schedule,history}`, `/health`) — those are
+safe from browser code. Everything else there (`/api/v1/users/*`,
+`/api/v1/agent/*`, `/api/v1/stations/*`, `/api/v1/analytics`, all writes) keeps a
+`localhost` + `*.up.railway.app` allowlist and must be proxied server-side.
 SIGNAL writes are `POST denpa.ai/api/predictions` with a `dk_` key through your
 own server route (not CORS-open) — reads need nothing. `/api/wire` and
 `/api/aura/score` are not CORS-open either; fetch them server-side if you need them.
