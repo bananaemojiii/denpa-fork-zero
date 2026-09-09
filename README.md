@@ -1,19 +1,28 @@
 # DENPA — The New Media Primitive · Fork Zero
 
-## What is Denpa
+## Manifesto
 
-**Denpa is a broadcast protocol: every prediction market becomes a live,
-programmable media surface.** You watch a market move, file a YES/NO **signal**,
-explain your call, and build a public **field record** of your judgment. The loop
-is the product:
+**We are building a new media distribution machine.** Not a channel network: a
+broadcast protocol where every prediction market is a live, programmable media
+surface, and a market page is not a scoreboard but a transmitter. The old
+machine distributed shows on a schedule; this one distributes markets by
+attention — what airs is what gets discovered, and airing is a timestamped
+protocol event: the clock puts a market on screen, the market moves, the move
+is measured. The primitive is the **filed call**: a public YES/NO signal with a
+snapshot of the market at call time, a take with a face on it, and a receipt —
+resolved by reality, scored into a public field record. Watching, calling and
+distributing are one gesture. Fork the surface; the distribution resolves
+through denpa.ai.
 
-> **Watch → Signal → Explain → Resolve → Rank → Follow**
+> **Watch → Signal → Explain → Air → Move → Resolve → Rank → Follow**
 
-This repo — **Fork Zero** — is the reference client for that primitive: a live
-broadcast of market signals you can clone, reskin and ship as your own station.
-It owns its surface (a static-TV broadcast set); markets, the clock, stories,
-tapes, operators and field records all resolve **through denpa.ai** — there is
-no second backend.
+## Fork Zero
+
+This repo is the reference client for that primitive: a live broadcast of
+market signals you can clone, reskin and ship as your own station. It owns its
+surface (a static-TV broadcast set); the clock, markets, stories, tapes,
+operators and field records all resolve **through denpa.ai** — there is no
+second backend.
 
 Tune with the on-screen zapper, the **0–9** number keys, **T** for the tape, or **▲ / ▼**.
 **SPACE** (or **P**, or the ❚❚ PAUSE button) pauses the autocut — the now-playing market and the tape hold; the clock keeps ticking, so PLAY re-syncs to the rundown. Zapping resumes.
@@ -27,10 +36,6 @@ Tune with the on-screen zapper, the **0–9** number keys, **T** for the tape, o
   then markets carrying takes, then what THE WIRE says moved, then segments in
   their final stretch, then the rest of the clock. What airs is what gets
   discovered.
-- **Channels are operators and stations, not categories.** The CHANNELS rail
-  under the picture is live operators (`/live/[handle]`), Station Registry
-  stations (`/station/[id]`), then recent takes. Market categories are *lanes*
-  on the channel clock.
 - **The channel clock is a protocol service.** `program-clock` turns resolving
   markets into a real-time rundown (content segments with 10s bumpers between
   them, self-filling hours ahead). denpa.ai serves its own rundown at
@@ -57,9 +62,11 @@ Tune with the on-screen zapper, the **0–9** number keys, **T** for the tape, o
 - **Play/pause holds the pick, never the clock** — the same rule on web, iOS
   and this fork.
 
-## Channels
+## Program view
 
-The dial mirrors the lanes denpa.ai itself airs; the network's other surfaces are channels too.
+The dial is the clock. CH 1–6 are the lanes of the denpa.ai channel clock —
+the rundown the denpa.ai home TV rotates through — and the rest are the
+protocol's other live surfaces.
 
 | CH | Channel | Airs | Source |
 |----|---------|------|--------|
@@ -74,21 +81,17 @@ The dial mirrors the lanes denpa.ai itself airs; the network's other surfaces ar
 | 8 | GUIDE   | top markets across the protocol | `/api/polymarket/featured` |
 | 9 | TAPE    | the federated clip reel, played as a channel (HLS) | `/api/network/tapes` |
 
-CH 1–6 read `/api/broadcast/program?preset=default` — the rundown the denpa.ai
-home TV rotates through. NOW PLAYING is the content segment on air right now,
-UP NEXT is the rundown with real start times, and the masthead shows
-`CHANNEL CLOCK LIVE`. When the clock is unwired, a channel with a legacy
-schedule category falls back to it (ON AIR first, else soonest to resolve);
-the others go to dead air.
+NOW PLAYING is the content segment on air right now, UP NEXT is the rundown
+with real start times, and the masthead shows `CHANNEL CLOCK LIVE`. When the
+clock is unwired, a lane with a legacy schedule category falls back to it (ON
+AIR first, else soonest to resolve); the others go to dead air. Other lanes
+(politics, news, science) live on other stations — a fork asks the hub for its
+own clock: `/api/network/program?providers=kalshi&categories=politics,news`.
 
-Politics, news and science are not lanes on denpa.ai's clock — they are
-cee.news / pund.it territory. A fork that wants them asks the hub for its own
-clock: `/api/network/program?providers=kalshi&categories=politics,news`.
+A lane with nothing to air shows the animated **NO SIGNAL** screen. Every feed
+refreshes every 30s and fails independently.
 
-A channel with nothing to air shows the animated **NO SIGNAL** dead-channel
-screen. Every feed refreshes every 30s and fails independently.
-
-## What each market channel airs
+## What each lane airs
 
 - **NOW PLAYING** — the on-air (or soonest-resolving) market for the lane
 - **YES / NO** — live split bars
@@ -173,7 +176,7 @@ first; Safari falls back to native HLS).
 
 ## Changelog
 
-- **0.2.1 (2026-09-09)** — the dial mirrors denpa.ai: CH 1–6 are the lanes the
+- **0.2.1 (2026-09-09)** — manifesto + program view; the dial mirrors denpa.ai: CH 1–6 are the lanes the
   denpa.ai home TV airs (SPORTS · MUSIC · FILM · TV · FASHION · CRYPTO) read
   from `preset=default`; POLITICS / CULTURE / NEWS / SCIENCE retired (not on
   denpa.ai's clock); RANK / GUIDE / TAPE renumbered to 7 / 8 / 9 so the dial is
